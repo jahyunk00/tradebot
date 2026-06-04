@@ -1,0 +1,41 @@
+# Trading agent configuration
+# Start in analyze_only mode — no orders will be placed.
+
+mode: analyze_only  # analyze_only | auto_execute
+
+watchlist:
+  - SPY
+  - QQQ
+  - AAPL
+  - MSFT
+  - NVDA
+
+backtest:
+  lookback_days: 365
+  initial_capital: 10000
+  strategy: momentum  # momentum | mean_reversion | sma_crossover
+  # Must pass these before auto_execute is allowed (enforced by guardrails)
+  min_sharpe_ratio: 0.5
+  min_win_rate_pct: 45
+  max_drawdown_pct: 20
+  min_total_return_pct: 5
+
+llm:
+  model: claude-sonnet-4-20250514
+  max_tokens: 4096
+
+robinhood:
+  mcp_url: https://agent.robinhood.com/mcp/trading
+  oauth_server_url: https://agent.robinhood.com
+
+logging:
+  directory: logs
+  level: INFO
+
+# Retail investor support — information, time, and literacy gaps
+retail:
+  benchmark_ticker: SPY
+  news_headlines_per_ticker: 3
+  plain_english: true
+  include_glossary: true
+  max_read_minutes: 2
