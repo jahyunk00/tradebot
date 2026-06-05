@@ -115,7 +115,8 @@ class BossSettings(BaseModel):
     training: BossTrainingConfig = Field(default_factory=BossTrainingConfig)
     portfolio_mode: Literal["single", "multi"] = "multi"
     max_picks: int = 3
-    rotate_out: bool = False
+    rotate_out: bool = True
+    momentum_weight: float = 0.35
 
 
 class BearModeSettings(BaseModel):

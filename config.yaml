@@ -49,7 +49,8 @@ boss:
   strategist_weight: 0.4
   portfolio_mode: multi
   max_picks: 3
-  rotate_out: false
+  rotate_out: true
+  momentum_weight: 0.35
   weights_path: logs/boss_weights.json
   paper_portfolio_path: logs/paper_portfolio.json
   learning_rate: 0.08

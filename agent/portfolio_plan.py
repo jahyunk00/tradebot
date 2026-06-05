@@ -8,22 +8,52 @@ from agent.bankroll import clamp_trade_amount
 from agent.guardrails import Guardrails, TradeIntent
 
 
+def _normalize(values: dict[str, float]) -> dict[str, float]:
+    if not values:
+        return {}
+    lo = min(values.values())
+    hi = max(values.values())
+    if hi == lo:
+        return {k: 0.5 for k in values}
+    return {k: (v - lo) / (hi - lo) for k, v in values.items()}
+
+
 def pick_targets(
     combined_scores: dict[str, float] | None,
     *,
     min_score: float,
     mode: str,
     max_picks: int,
+    momentum_by_ticker: dict[str, float] | None = None,
+    momentum_weight: float = 0.35,
 ) -> list[str]:
+    """
+    Rank by blended boss score + recent momentum so slow legacy winners
+    (e.g. already-up memory names) don't block fresher movers.
+    """
     if not combined_scores:
         return []
-    ranked = sorted(combined_scores.items(), key=lambda x: -float(x[1]))
-    eligible = [(t.upper(), float(s)) for t, s in ranked if float(s) >= min_score]
+
+    eligible = {t.upper(): float(s) for t, s in combined_scores.items() if float(s) >= min_score}
     if not eligible:
         return []
+
+    model_n = _normalize(eligible)
+    mom_subset = {t: momentum_by_ticker[t] for t in eligible if momentum_by_ticker and t in momentum_by_ticker}
+    mom_n = _normalize(mom_subset) if mom_subset else {}
+
+    mw = max(0.0, min(float(momentum_weight), 0.6))
+    blended: dict[str, float] = {}
+    for ticker, ms in model_n.items():
+        if ticker in mom_n:
+            blended[ticker] = (1.0 - mw) * ms + mw * mom_n[ticker]
+        else:
+            blended[ticker] = ms
+
+    ranked = sorted(blended.items(), key=lambda x: -x[1])
     if mode == "single":
-        return [eligible[0][0]]
-    return [t for t, _ in eligible[: max(1, max_picks)]]
+        return [ranked[0][0]]
+    return [t for t, _ in ranked[: max(1, max_picks)]]
 
 
 def build_portfolio_trade_plan(
@@ -37,7 +67,7 @@ def build_portfolio_trade_plan(
 ) -> list[dict[str, Any]]:
     """
     single + rotate_out: sell non-target, buy one (classic rotation).
-    multi: buy each target up to order cap; optionally sell names dropped from list.
+    multi + rotate_out: sell names dropped from top picks, buy up to max_picks.
     """
     g = guardrails.guardrails_config
     held = {t.upper(): v for t, v in positions.items() if v > 0}
@@ -58,7 +88,7 @@ def build_portfolio_trade_plan(
                         side="sell",
                         amount_usd=amount,
                         order_type="market",
-                        rationale=f"Rotate out of {ticker} — not in current picks.",
+                        rationale=f"Rotate out of {ticker} — not in current top picks.",
                     ),
                     "kind": "exit",
                 }

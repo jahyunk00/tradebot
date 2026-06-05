@@ -23,6 +23,7 @@ from backtest.engine import run_backtest
 from broker.executor import OrderExecutor
 from broker.robinhood_client import RobinhoodMCPClient
 from data.market_data import fetch_history
+from data.trajectory import recent_momentum_by_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,14 @@ class BossTrader(RulesTrader):
         decision = decide_from_history(history, self.agent_config, weights)
 
         boss = self.agent_config.boss
+        momentum = recent_momentum_by_ticker(screener_meta.get("details") or [])
         targets = pick_targets(
             decision.combined_scores,
             min_score=boss.min_combined_score,
             mode=boss.portfolio_mode,
             max_picks=boss.max_picks,
+            momentum_by_ticker=momentum,
+            momentum_weight=boss.momentum_weight,
         )
         primary = targets[0] if targets else decision.target_ticker
 
