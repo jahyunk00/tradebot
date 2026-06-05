@@ -8,6 +8,6 @@
     "startCommand": "python scripts/railway_entry.py",
     "restartPolicyType": "ON_FAILURE",
     "cronSchedule": null,
-    "healthcheckPath": "/api/status"
+    "healthcheckPath": "/health"
   }
 }

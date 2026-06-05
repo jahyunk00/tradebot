@@ -239,6 +239,11 @@ def _page(data: dict[str, Any], msg: str = "") -> str:
 </body></html>"""
 
 
+@app.get("/health")
+def health() -> JSONResponse:
+    return JSONResponse({"ok": True})
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     msg = request.query_params.get("msg", "").replace("+", " ")
