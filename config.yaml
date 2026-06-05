@@ -24,7 +24,7 @@ paper_trials:
   enabled: true
   max_paper_slots: 3
   max_live_promoted: 3
-  virtual_usd: 15
+  virtual_usd: 30
   campaign_days: 30
   min_sessions: 2
   min_return_pct: 1.5
@@ -36,7 +36,7 @@ paper_trials:
   bear_min_model_score: 0.18
 backtest:
   lookback_days: 365
-  initial_capital: 150
+  initial_capital: 100
   strategy: ensemble_weighted
 ensemble:
   weights:

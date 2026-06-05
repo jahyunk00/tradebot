@@ -176,7 +176,7 @@ class PaperTrialsSettings(BaseModel):
     enabled: bool = True
     max_paper_slots: int = 3
     max_live_promoted: int = 3
-    virtual_usd: float = 15.0
+    virtual_usd: float = 30.0
     campaign_days: int = 30
     min_sessions: int = 2
     min_return_pct: float = 1.5
@@ -219,7 +219,7 @@ class BacktestGate(BaseModel):
 class BankrollConfig(BaseModel):
     """How the bot sizes orders as the account grows or shrinks."""
     mode: Literal["fixed", "dynamic"] = "dynamic"
-    initial_usd: float = 150
+    initial_usd: float = 100
     ceiling_usd: float | None = None  # optional max equity used for sizing
     require_cash_only: bool = True
     reinvest_profits: bool = True  # dynamic mode uses live equity including gains
