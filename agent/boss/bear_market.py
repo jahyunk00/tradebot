@@ -85,9 +85,10 @@ def apply_bear_defense(
         decision.executive = executive
         return decision
 
+    scores = (decision.executive or {}).get("final_scores") or decision.combined_scores
     ranked = sorted(
-        (decision.executive or {}).get("final_scores") or decision.combined_scores,
-        key=lambda x: -x[1],
+        scores.items(),
+        key=lambda x: -float(x[1]),
     )
 
     if stress["is_bear"]:
