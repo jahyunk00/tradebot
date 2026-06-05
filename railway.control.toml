@@ -5,3 +5,5 @@ dockerfilePath = "Dockerfile.control"
 [deploy]
 startCommand = "python scripts/railway_entry.py"
 restartPolicyType = "ON_FAILURE"
+healthcheckPath = "/api/status"
+# No cronSchedule — always-on web service (set this file in service Settings → Config)
