@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.bankroll import resolve_bankroll
 from agent.runtime_state import append_progress
 from agent.boss.agent import decide_from_history, load_boss_weights, weights_from_config
 from agent.config import load_config
