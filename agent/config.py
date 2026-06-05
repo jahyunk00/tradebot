@@ -172,15 +172,20 @@ class UniverseSettings(BaseModel):
 
 
 class PaperTrialsSettings(BaseModel):
-    """Paper-audit up to 2 names; auto-promote winners to live cash (max 2)."""
+    """Paper-audit names; auto-promote winners to live cash."""
     enabled: bool = True
-    max_paper_slots: int = 2
-    max_live_promoted: int = 2
+    max_paper_slots: int = 3
+    max_live_promoted: int = 3
     virtual_usd: float = 15.0
-    min_sessions: int = 5
-    min_return_pct: float = 3.0
+    campaign_days: int = 30
+    min_sessions: int = 2
+    min_return_pct: float = 1.5
     drop_below_pct: float = -4.0
-    min_model_score: float = 0.25
+    min_model_score: float = 0.22
+    bear_fast_track: bool = True
+    bear_min_sessions: int = 1
+    bear_min_return_pct: float = 0.5
+    bear_min_model_score: float = 0.18
 
 
 class AgentConfig(BaseModel):

@@ -73,8 +73,11 @@ def apply_bear_defense(
     if bear_cfg is None or not getattr(bear_cfg, "enabled", True):
         return decision
 
-    benchmark = agent_cfg.pharma.benchmark_ticker if getattr(agent_cfg, "pharma", None) else "XBI"
-    stress = detect_market_stress(history, benchmark)
+    benchmark = getattr(agent_cfg, "retail", None)
+    bench_ticker = benchmark.benchmark_ticker if benchmark else "SPY"
+    if getattr(agent_cfg, "pharma", None) and agent_cfg.pharma.enabled:
+        bench_ticker = agent_cfg.pharma.benchmark_ticker
+    stress = detect_market_stress(history, bench_ticker)
     pharma = decision.pharma_report or {}
     news_scores = pharma.get("news_scores") or {}
 

@@ -22,13 +22,18 @@ universe:
   cache_hours: 20
 paper_trials:
   enabled: true
-  max_paper_slots: 2
-  max_live_promoted: 2
+  max_paper_slots: 3
+  max_live_promoted: 3
   virtual_usd: 15
-  min_sessions: 5
-  min_return_pct: 3.0
+  campaign_days: 30
+  min_sessions: 2
+  min_return_pct: 1.5
   drop_below_pct: -4.0
-  min_model_score: 0.25
+  min_model_score: 0.22
+  bear_fast_track: true
+  bear_min_sessions: 1
+  bear_min_return_pct: 0.5
+  bear_min_model_score: 0.18
 backtest:
   lookback_days: 365
   initial_capital: 150
@@ -65,9 +70,9 @@ boss:
     third_leg_model: bayesian_changepoint
 bear_mode:
   enabled: true
-  min_news_score: 0.08
+  min_news_score: 0.05
   block_metrics_only: true
-  oversold_rsi: 38.0
+  oversold_rsi: 42.0
   stop_tighten_pct: 0.2
   tp1_r: 0.75
   tp2_r: 1.5

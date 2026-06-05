@@ -68,6 +68,7 @@ def run_paper_trials(
     rotation_swaps: list[dict[str, Any]],
     combined_scores: dict[str, float] | None,
     dry_run: bool = True,
+    market_stress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Maintain max `max_paper_slots` paper auditions. Promote to live cash when
@@ -85,7 +86,23 @@ def run_paper_trials(
     drop_below_pct = float(getattr(pt, "drop_below_pct", -4.0))
     min_model_score = float(getattr(pt, "min_model_score", 0.25))
 
+    is_bear = bool(market_stress and market_stress.get("is_bear"))
+    if getattr(pt, "bear_fast_track", True) and is_bear:
+        min_sessions = int(getattr(pt, "bear_min_sessions", 1))
+        min_return_pct = float(getattr(pt, "bear_min_return_pct", 0.5))
+        min_model_score = float(getattr(pt, "bear_min_model_score", 0.18))
+        logger.info(
+            "Bear fast-track trials (%s): min_sessions=%d min_return=%.1f%%",
+            market_stress.get("label", "BEAR"),
+            min_sessions,
+            min_return_pct,
+        )
+
     state = load_trials_state(base_dir)
+    campaign_days = int(getattr(pt, "campaign_days", 30))
+    if not state.get("campaign_started_at"):
+        state["campaign_started_at"] = datetime.now(timezone.utc).isoformat()
+        state["campaign_days"] = campaign_days
     trials: list[dict[str, Any]] = state.get("trials") or []
     live_promoted: list[dict[str, Any]] = state.get("live_promoted") or []
 
@@ -196,6 +213,13 @@ def run_paper_trials(
         "promoted_this_run": promoted_this_run,
         "dropped_this_run": dropped_this_run,
         "virtual_usd": virtual_usd,
+        "bear_fast_track": is_bear,
+        "thresholds": {
+            "min_sessions": min_sessions,
+            "min_return_pct": min_return_pct,
+            "min_model_score": min_model_score,
+        },
+        "market_stress": market_stress,
     }
 
 

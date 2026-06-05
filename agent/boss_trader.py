@@ -11,6 +11,7 @@ from typing import Any
 from agent.bankroll import resolve_bankroll
 from agent.runtime_state import append_progress
 from agent.boss.agent import decide_from_history, load_boss_weights, weights_from_config
+from agent.boss.bear_market import detect_market_stress
 from agent.config import load_config
 from agent.guardrails import Guardrails, TradeIntent, TradingMode
 from agent.rules_signals import LiveSignal, parse_positions
@@ -137,6 +138,9 @@ class BossTrader(RulesTrader):
         mode = guardrails.effective_mode
         can_trade = guardrails.can_execute_trades()
 
+        bench_hist = fetch_history([benchmark], min(252, lookback))
+        market_stress = detect_market_stress(bench_hist, benchmark)
+
         trials_report = run_paper_trials(
             self.base_dir,
             self.agent_config,
@@ -145,6 +149,7 @@ class BossTrader(RulesTrader):
             rotation_swaps=screener_meta.get("swaps") or [],
             combined_scores=decision.combined_scores,
             dry_run=self.dry_run,
+            market_stress=market_stress,
         )
         promotion_executions: list[dict[str, Any]] = []
         can_promote_live = self.dry_run or (mode == TradingMode.AUTO_EXECUTE and can_trade.allowed)
@@ -230,6 +235,7 @@ class BossTrader(RulesTrader):
             "leg_reports": decision.leg_reports,
             "combined_scores": decision.combined_scores,
             "executive": decision.executive,
+            "market_stress": market_stress,
             "signal": {
                 "target_ticker": signal.target_ticker,
                 "targets": targets,
