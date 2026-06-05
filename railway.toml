@@ -1,6 +1,6 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "pip install -r requirements-deploy.txt"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "python scripts/railway_trade.py"

@@ -1,0 +1,10 @@
+.venv/
+venv/
+.tokens/
+.env
+logs/
+__pycache__/
+*.pyc
+vendor/
+deploy/railway/.oauth.b64
+.git/
