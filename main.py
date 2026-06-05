@@ -438,6 +438,21 @@ async def cmd_trade(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    import os
+    import sys
+    from pathlib import Path
+
+    if len(sys.argv) == 1 and (
+        os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_SERVICE_NAME")
+    ):
+        import runpy
+
+        runpy.run_path(
+            str(Path(__file__).resolve().parent / "scripts" / "railway_trade.py"),
+            run_name="__main__",
+        )
+        return
+
     parser = argparse.ArgumentParser(
         description="Robinhood agentic trading bot for retail investors"
     )
@@ -522,17 +537,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import os
-    import sys
-    from pathlib import Path
-
-    # Railway cron often invokes `python main.py` — run scheduled trade when no subcommand.
-    if len(sys.argv) == 1 and os.getenv("RAILWAY_ENVIRONMENT"):
-        import runpy
-
-        runpy.run_path(
-            str(Path(__file__).resolve().parent / "scripts" / "railway_trade.py"),
-            run_name="__main__",
-        )
-    else:
-        main()
+    main()
