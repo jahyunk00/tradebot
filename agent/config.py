@@ -153,10 +153,38 @@ class KronosSettings(BaseModel):
     device: str | None = None
 
 
+class UniverseSettings(BaseModel):
+    """Dynamic watchlist — large caps with strong trailing growth + rotation."""
+    enabled: bool = False
+    rotation_enabled: bool = True
+    min_market_cap_b: float = 50.0
+    min_return_1y_pct: float = 5.0
+    pool_size: int = 30                       # broad screen pool
+    top_n: int = 15                           # active roster size
+    swap_margin_pct: float = 2.0              # replace laggard if alt beats by this %
+    lookback_days: int = 252
+    cache_hours: float = 20.0
+    seed_universe: list[str] = Field(default_factory=list)
+
+
+class PaperTrialsSettings(BaseModel):
+    """Paper-audit up to 2 names; auto-promote winners to live cash (max 2)."""
+    enabled: bool = True
+    max_paper_slots: int = 2
+    max_live_promoted: int = 2
+    virtual_usd: float = 15.0
+    min_sessions: int = 5
+    min_return_pct: float = 3.0
+    drop_below_pct: float = -4.0
+    min_model_score: float = 0.25
+
+
 class AgentConfig(BaseModel):
     mode: Literal["analyze_only", "auto_execute"] = "analyze_only"
     engine: Literal["rules", "llm", "kronos", "ensemble", "boss"] = "boss"
     watchlist: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "AAPL"])
+    universe: UniverseSettings = Field(default_factory=UniverseSettings)
+    paper_trials: PaperTrialsSettings = Field(default_factory=PaperTrialsSettings)
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     robinhood: RobinhoodConfig = Field(default_factory=RobinhoodConfig)

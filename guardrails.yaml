@@ -15,16 +15,9 @@ max_position_pct: 10
 max_daily_trades: 3
 max_open_positions: 3
 
+# When universe screener is on, allowed_tickers is refreshed each run from screener output.
 allowed_tickers:
-  - ARWR
-  - DNLI
-  - FATE
-  - PTGX
-  - RVMD
-  - ACLX
-  - IMCR
-  - CRSP
-  - XBI
+  - SPY
 
 allowed_order_types:
   - market

@@ -15,6 +15,8 @@ from agent.config import load_config
 from agent.guardrails import Guardrails, TradeIntent, TradingMode
 from agent.rules_signals import LiveSignal, parse_positions
 from agent.rules_trader import RulesTrader
+from agent.paper_trials import live_promoted_tickers, run_paper_trials
+from agent.watchlist import resolve_watchlist
 from backtest.engine import run_backtest
 from broker.executor import OrderExecutor
 from broker.robinhood_client import RobinhoodMCPClient
@@ -32,8 +34,14 @@ class BossTrader(RulesTrader):
         weights_path = self.base_dir / self.agent_config.boss.weights_path
         weights = load_boss_weights(weights_path, fallback=weights_from_config(self.agent_config))
 
+        watchlist, screener_meta = resolve_watchlist(self.base_dir, self.agent_config)
+        benchmark = retail.benchmark_ticker.upper()
+        promoted = live_promoted_tickers(self.base_dir)
+        allowed = list(dict.fromkeys([*watchlist, *promoted, benchmark]))
+        guard_cfg = self.guardrails_config.model_copy(update={"allowed_tickers": allowed})
+
         report = run_backtest(
-            tickers=self.agent_config.watchlist,
+            tickers=watchlist,
             strategy_name="ensemble_weighted",
             lookback_days=self.agent_config.backtest.lookback_days,
             initial_capital=self.agent_config.backtest.initial_capital,
@@ -44,7 +52,7 @@ class BossTrader(RulesTrader):
             self.agent_config.backtest.lookback_days,
             self.agent_config.hmm.lookback + 10,
         )
-        history = fetch_history(self.agent_config.watchlist, lookback)
+        history = fetch_history(watchlist, lookback)
         decision = decide_from_history(history, self.agent_config, weights)
 
         signal = LiveSignal(
@@ -75,12 +83,12 @@ class BossTrader(RulesTrader):
         if not positions and bankroll.positions:
             positions = bankroll.positions
 
-        evaluated = Guardrails(self.agent_config, self.guardrails_config).evaluate_backtest(
+        evaluated = Guardrails(self.agent_config, guard_cfg).evaluate_backtest(
             report.aggregate
         )
         guardrails = Guardrails(
             self.agent_config,
-            self.guardrails_config,
+            guard_cfg,
             bankroll=bankroll,
             backtest_result=evaluated,
             open_positions=len([v for v in positions.values() if v > 0]),
@@ -92,6 +100,33 @@ class BossTrader(RulesTrader):
         executions: list[dict[str, Any]] = []
         mode = guardrails.effective_mode
         can_trade = guardrails.can_execute_trades()
+
+        trials_report = run_paper_trials(
+            self.base_dir,
+            self.agent_config,
+            guard_cfg,
+            watchlist=watchlist,
+            rotation_swaps=screener_meta.get("swaps") or [],
+            combined_scores=decision.combined_scores,
+            dry_run=self.dry_run,
+        )
+        promotion_executions: list[dict[str, Any]] = []
+        can_promote_live = self.dry_run or (mode == TradingMode.AUTO_EXECUTE and can_trade.allowed)
+        if can_promote_live and trials_report.get("enabled") and trials_report.get("promoted_this_run"):
+            pt = self.agent_config.paper_trials
+            promo_usd = float(getattr(pt, "virtual_usd", 15.0))
+            for promo in trials_report["promoted_this_run"]:
+                ticker = promo["ticker"]
+                try:
+                    review = await executor.place_market_order(
+                        account_number, ticker, "buy", promo_usd, dry_run=self.dry_run
+                    )
+                    promotion_executions.append(
+                        {"ticker": ticker, "usd": promo_usd, "executed": not self.dry_run, "result": review}
+                    )
+                    logger.info("Auto-promoted live buy: %s $%.0f", ticker, promo_usd)
+                except Exception as exc:
+                    promotion_executions.append({"ticker": ticker, "error": str(exc)})
 
         if self.dry_run:
             logger.info("Boss dry-run — orders reviewed, not placed.")
@@ -133,6 +168,10 @@ class BossTrader(RulesTrader):
             "mode": mode.value,
             "strategy": "boss_ensemble",
             "boss_weights": {**weights.as_dict(), "source": weights.source, "train_sharpe": weights.train_sharpe},
+            "watchlist": watchlist,
+            "screener": screener_meta,
+            "paper_trials": trials_report,
+            "promotion_trades": promotion_executions,
             "leg_reports": decision.leg_reports,
             "combined_scores": decision.combined_scores,
             "executive": decision.executive,
