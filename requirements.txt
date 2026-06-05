@@ -11,3 +11,5 @@ scipy>=1.11.0
 python-dotenv>=1.0.0
 aiohttp>=3.9.0
 streamlit>=1.28.0
+hmmlearn>=0.3.3
+ruptures>=1.1.9

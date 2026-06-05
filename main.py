@@ -522,4 +522,17 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import os
+    import sys
+    from pathlib import Path
+
+    # Railway cron often invokes `python main.py` — run scheduled trade when no subcommand.
+    if len(sys.argv) == 1 and os.getenv("RAILWAY_ENVIRONMENT"):
+        import runpy
+
+        runpy.run_path(
+            str(Path(__file__).resolve().parent / "scripts" / "railway_trade.py"),
+            run_name="__main__",
+        )
+    else:
+        main()
