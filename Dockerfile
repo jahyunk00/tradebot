@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements-deploy.txt
 
 COPY . .
 
-CMD ["python", "scripts/railway_trade.py"]
+CMD ["python", "scripts/railway_entry.py"]

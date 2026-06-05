@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python scripts/railway_trade.py"
+startCommand = "python scripts/railway_entry.py"
 # 9:35 AM US Eastern (EDT = UTC-4) → 13:35 UTC, Mon–Fri
 # Nov–Mar (EST): use "35 14 * * 1-5" instead
 cronSchedule = "35 13 * * 1-5"
