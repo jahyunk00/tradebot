@@ -24,7 +24,7 @@ class FileTokenStorage(TokenStorage):
         return OAuthToken.model_validate(raw) if raw else None
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        self._data["tokens"] = tokens.model_dump()
+        self._data["tokens"] = tokens.model_dump(mode="json")
         self._save()
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
@@ -32,8 +32,8 @@ class FileTokenStorage(TokenStorage):
         return OAuthClientInformationFull.model_validate(raw) if raw else None
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        self._data["client_info"] = client_info.model_dump()
+        self._data["client_info"] = client_info.model_dump(mode="json")
         self._save()
 
     def _save(self) -> None:
-        self.path.write_text(json.dumps(self._data, indent=2))
+        self.path.write_text(json.dumps(self._data, indent=2, default=str))

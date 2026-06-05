@@ -1,0 +1,9 @@
+{
+  "kronos": 0.3462,
+  "hmm": 0.336,
+  "third_leg": 0.3179,
+  "trained_at": "2026-06-05T02:15:23.214607+00:00",
+  "train_sharpe": 0.6,
+  "train_samples": 92,
+  "source": "roi_optimized"
+}

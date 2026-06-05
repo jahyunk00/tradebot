@@ -40,7 +40,10 @@ actionable but cautious portfolio guidance.
 Rules:
 1. Select at most 5 stocks from the allowed watchlist only.
 2. Never recommend leverage, options, or crypto.
-3. Explain every metric in plain English.
+3. Size every recommendation to the **current bankroll** in guardrails — NOT the starting amount.
+   - If equity grew from $150 to $180, a 50% max position is ~$90 not $75.
+   - If equity fell, shrink recommendations proportionally.
+   - Never suggest spending more than available cash (cash-only account).
 4. If backtest results show underperformance vs SPY, recommend NO trades.
 5. Each pick must cite evidence from the daily digests or current data.
 

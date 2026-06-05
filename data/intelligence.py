@@ -44,23 +44,54 @@ def fetch_fundamentals(ticker: str) -> dict[str, Any]:
     }
 
 
+def _parse_news_item(item: dict) -> dict[str, str]:
+    """Support legacy yfinance news shape and newer nested `content` payloads."""
+    content = item.get("content") if isinstance(item.get("content"), dict) else item
+    title = (
+        content.get("title")
+        or item.get("title")
+        or content.get("summary", "")[:120]
+        or ""
+    )
+    provider = content.get("provider") or {}
+    publisher = (
+        provider.get("displayName")
+        if isinstance(provider, dict)
+        else None
+    ) or item.get("publisher", "")
+
+    published = ""
+    pub_date = content.get("pubDate") or content.get("displayTime") or item.get("providerPublishTime")
+    if pub_date:
+        if isinstance(pub_date, (int, float)):
+            published = datetime.fromtimestamp(pub_date, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        else:
+            published = str(pub_date).replace("T", " ").replace("Z", " UTC")[:22]
+
+    link = ""
+    for key in ("clickThroughUrl", "canonicalUrl"):
+        url_obj = content.get(key) or item.get(key)
+        if isinstance(url_obj, dict) and url_obj.get("url"):
+            link = url_obj["url"]
+            break
+
+    return {
+        "title": str(title).strip(),
+        "publisher": str(publisher).strip(),
+        "published": published,
+        "url": link,
+    }
+
+
 def fetch_news(ticker: str, limit: int = 3) -> list[dict[str, str]]:
     """Recent headlines — free public data via yfinance."""
     t = yf.Ticker(ticker)
     raw = t.news or []
     headlines: list[dict[str, str]] = []
     for item in raw[:limit]:
-        headlines.append(
-            {
-                "title": item.get("title", ""),
-                "publisher": item.get("publisher", ""),
-                "published": datetime.fromtimestamp(
-                    item.get("providerPublishTime", 0), tz=timezone.utc
-                ).strftime("%Y-%m-%d %H:%M UTC")
-                if item.get("providerPublishTime")
-                else "",
-            }
-        )
+        parsed = _parse_news_item(item)
+        if parsed["title"]:
+            headlines.append(parsed)
     return headlines
 
 

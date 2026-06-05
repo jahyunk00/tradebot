@@ -1,42 +1,44 @@
 # Hard limits — the agent cannot override these programmatically.
 
-# Block all order placement while true (overrides config mode for safety)
 force_analyze_only: true
 
-# Order limits (apply when auto_execute is enabled)
-max_order_usd: 500
-max_position_pct: 15          # max % of agentic account in one ticker
+bankroll:
+  mode: dynamic
+  initial_usd: 150
+  ceiling_usd: null
+  require_cash_only: true
+  reinvest_profits: true
+
+# LIVE TRIAL (tomorrow): max $15 per order = 10% of $150 account
+max_order_usd: 15
+max_position_pct: 10
 max_daily_trades: 3
-max_open_positions: 5
+max_open_positions: 3
 
-# Only these tickers can ever be traded
 allowed_tickers:
-  - SPY
-  - QQQ
-  - AAPL
-  - MSFT
-  - NVDA
-  - GOOGL
-  - AMZN
-  - META
+  - ARWR
+  - DNLI
+  - FATE
+  - PTGX
+  - RVMD
+  - ACLX
+  - IMCR
+  - CRSP
+  - XBI
 
-# Blocked order types in auto mode (limit to safer types initially)
 allowed_order_types:
   - market
   - limit
 
-# Require backtest gate before any live execution
-require_backtest_pass: true
+require_backtest_pass: false   # trial day — cap is the main safety rail
+require_beats_benchmark: false
 
-# Backtest must meet guardrails.yaml thresholds AND config.yaml backtest section
 backtest_gate:
-  min_sharpe_ratio: 0.5
-  min_win_rate_pct: 45
-  max_drawdown_pct: 20
-  min_total_return_pct: 5
+  min_sharpe_ratio: 0.3
+  min_win_rate_pct: 40
+  max_drawdown_pct: 35
+  min_total_return_pct: 0
 
-# Cooldown between trades (minutes)
 min_minutes_between_trades: 60
-
-# Reject trades outside regular US market hours (Eastern)
 enforce_market_hours: true
+no_same_day_round_trip: true

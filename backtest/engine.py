@@ -8,7 +8,12 @@ import numpy as np
 import pandas as pd
 
 from agent.guardrails import BacktestResult
-from backtest.strategies import STRATEGIES
+from backtest.strategies import (
+    ALL_STRATEGY_NAMES,
+    PORTFOLIO_STRATEGIES,
+    STRATEGIES,
+    portfolio_returns_from_holds,
+)
 from data.market_data import fetch_history
 
 
@@ -31,6 +36,16 @@ class BacktestReport:
     per_ticker: dict[str, BacktestResult]
     aggregate: BacktestResult
     benchmark_comparison: BenchmarkComparison | None = None
+    strategy_name: str = ""
+
+
+@dataclass
+class StrategyComparisonRow:
+    strategy: str
+    aggregate: BacktestResult
+    benchmark_comparison: BenchmarkComparison
+    passed_gate: bool
+    score: float
 
 
 def _annualized_cagr(cumulative_return: float, trading_days: int) -> float:
@@ -71,7 +86,7 @@ def _compute_metrics(returns: pd.Series, trades: pd.Series) -> BacktestResult:
         calmar_ratio = round((cagr_pct / 100) / (max_drawdown_pct / 100), 2)
 
     trade_changes = trades.diff().fillna(trades)
-    entries = trade_changes[trade_changes > 0]
+    entries = trade_changes[trade_changes != 0]
     wins = 0
     total_trades = 0
     for idx in entries.index:
@@ -155,16 +170,12 @@ def compare_to_benchmark(strategy: BacktestResult, benchmark: BacktestResult) ->
     )
 
 
-def run_backtest(
-    tickers: list[str],
+def _run_per_ticker_backtest(
+    history: dict[str, pd.DataFrame],
     strategy_name: str,
-    lookback_days: int,
-    initial_capital: float = 10_000,
-    benchmark_ticker: str = "SPY",
-) -> BacktestReport:
-    history = fetch_history(tickers, lookback_days)
+    initial_capital: float,
+) -> tuple[dict[str, BacktestResult], BacktestResult]:
     strategy_fn = STRATEGIES.get(strategy_name, STRATEGIES["momentum"])
-
     per_ticker: dict[str, BacktestResult] = {}
     all_returns: list[pd.Series] = []
 
@@ -193,6 +204,48 @@ def run_backtest(
     else:
         aggregate = BacktestResult(0, 0, 0, 0, 0, 0, 0, 0, False, {"error": "No data fetched"})
 
+    return per_ticker, aggregate
+
+
+def _run_portfolio_backtest(
+    history: dict[str, pd.DataFrame],
+    strategy_name: str,
+    initial_capital: float,
+    benchmark_ticker: str,
+) -> tuple[dict[str, BacktestResult], BacktestResult]:
+    portfolio_fn = PORTFOLIO_STRATEGIES[strategy_name]
+    kwargs: dict = {}
+    if strategy_name == "dual_momentum_spy":
+        kwargs["benchmark"] = benchmark_ticker
+
+    holds = portfolio_fn(history, **kwargs)
+    strat_ret, position = portfolio_returns_from_holds(history, holds)
+    aggregate = _compute_metrics(strat_ret, position)
+    aggregate.details = {
+        "strategy": strategy_name,
+        "initial_capital": initial_capital,
+        "simulated_final_value": round(initial_capital * (1 + aggregate.total_return_pct / 100), 2),
+        "days": len(strat_ret),
+    }
+    return {}, aggregate
+
+
+def run_backtest(
+    tickers: list[str],
+    strategy_name: str,
+    lookback_days: int,
+    initial_capital: float = 10_000,
+    benchmark_ticker: str = "SPY",
+) -> BacktestReport:
+    history = fetch_history(tickers, lookback_days)
+
+    if strategy_name in PORTFOLIO_STRATEGIES:
+        per_ticker, aggregate = _run_portfolio_backtest(
+            history, strategy_name, initial_capital, benchmark_ticker
+        )
+    else:
+        per_ticker, aggregate = _run_per_ticker_backtest(history, strategy_name, initial_capital)
+
     bench = run_benchmark(benchmark_ticker, lookback_days, initial_capital)
     comparison = compare_to_benchmark(aggregate, bench)
 
@@ -200,4 +253,58 @@ def run_backtest(
         per_ticker=per_ticker,
         aggregate=aggregate,
         benchmark_comparison=comparison,
+        strategy_name=strategy_name,
     )
+
+
+def _strategy_score(row: StrategyComparisonRow) -> float:
+    cmp = row.benchmark_comparison
+    score = row.aggregate.sharpe_ratio
+    score += cmp.cagr_spread_pct * 0.05
+    score += cmp.sharpe_spread * 0.5
+    if row.passed_gate:
+        score += 1.0
+    if cmp.beats_benchmark_cagr and cmp.beats_benchmark_sharpe:
+        score += 0.5
+    return round(score, 3)
+
+
+def compare_strategies(
+    tickers: list[str],
+    lookback_days: int,
+    initial_capital: float,
+    benchmark_ticker: str,
+    *,
+    evaluate_gate,
+    include_kronos: bool = False,
+) -> list[StrategyComparisonRow]:
+    from backtest.strategies import ALL_STRATEGY_NAMES
+
+    names = list(ALL_STRATEGY_NAMES)
+    if not include_kronos and "kronos_top_k" in names:
+        names.remove("kronos_top_k")
+
+    rows: list[StrategyComparisonRow] = []
+    for name in names:
+        report = run_backtest(
+            tickers=tickers,
+            strategy_name=name,
+            lookback_days=lookback_days,
+            initial_capital=initial_capital,
+            benchmark_ticker=benchmark_ticker,
+        )
+        evaluated = evaluate_gate(report.aggregate)
+        cmp = report.benchmark_comparison
+        assert cmp is not None
+        row = StrategyComparisonRow(
+            strategy=name,
+            aggregate=evaluated,
+            benchmark_comparison=cmp,
+            passed_gate=evaluated.passed,
+            score=0.0,
+        )
+        row.score = _strategy_score(row)
+        rows.append(row)
+
+    rows.sort(key=lambda r: r.score, reverse=True)
+    return rows

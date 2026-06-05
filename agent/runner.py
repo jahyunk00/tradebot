@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from agent.analyzer import MarketAnalyzer
+from agent.bankroll import clamp_trade_amount, resolve_bankroll
 from agent.config import load_config
 from agent.digest_store import load_recent_digests, save_daily_digest
 from agent.guardrails import Guardrails, TradeIntent, TradingMode
+from agent.notify import notify_run_summary
 from backtest.engine import run_backtest
 from broker.robinhood_client import RobinhoodMCPClient
 from data.intelligence import (
@@ -32,10 +34,12 @@ class TradingAgentRunner:
         base_dir: Path | None = None,
         *,
         connect_robinhood: bool = True,
+        send_email: bool = True,
     ) -> None:
         self.base_dir = base_dir or Path(__file__).resolve().parent.parent
         self.agent_config, self.guardrails_config = load_config(self.base_dir)
         self.connect_robinhood = connect_robinhood
+        self.send_email = send_email
         self.log_dir = self.base_dir / self.agent_config.logging.directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_path = self.log_dir / self.SNAPSHOT_NAME
@@ -57,14 +61,12 @@ class TradingAgentRunner:
         guardrails = Guardrails(self.agent_config, self.guardrails_config)
         evaluated = guardrails.evaluate_backtest(backtest_report.aggregate)
         comparison = backtest_report.benchmark_comparison
-
         logger.info(
-            "Backtest: CAGR=%.1f%% Sharpe=%.2f Calmar=%.2f vs %s CAGR=%.1f%% — %s",
+            "Backtest: CAGR=%.1f%% Sharpe=%.2f Calmar=%.2f vs %s — %s",
             evaluated.cagr_pct,
             evaluated.sharpe_ratio,
             evaluated.calmar_ratio,
             retail.benchmark_ticker,
-            comparison.benchmark.cagr_pct if comparison else 0,
             comparison.summary if comparison else "no benchmark",
         )
 
@@ -80,6 +82,29 @@ class TradingAgentRunner:
         account_context: dict[str, Any] | None = None
         if self.connect_robinhood:
             account_context = await self._fetch_account_context()
+
+        # Dynamic bankroll — limits grow/shrink with equity (profits reinvested)
+        br_cfg = self.guardrails_config.bankroll
+        bankroll = resolve_bankroll(
+            mode=br_cfg.mode if br_cfg.reinvest_profits else "fixed",
+            initial_usd=br_cfg.initial_usd,
+            ceiling_usd=br_cfg.ceiling_usd,
+            account_context=account_context,
+        )
+        guardrails = Guardrails(
+            self.agent_config,
+            self.guardrails_config,
+            bankroll=bankroll,
+            backtest_result=evaluated,
+        )
+        logger.info(
+            "Bankroll: equity=$%.2f cash=$%.2f gain=%+.1f%% max_order=$%.2f (source=%s)",
+            bankroll.equity_usd,
+            bankroll.cash_usd,
+            bankroll.gain_pct,
+            guardrails.effective_max_order_usd(),
+            bankroll.source,
+        )
 
         # Step 3: Two-stage LLM pipeline
         analyzer = MarketAnalyzer(
@@ -103,9 +128,11 @@ class TradingAgentRunner:
         guardrail_summary = {
             "effective_mode": guardrails.effective_mode.value,
             "force_analyze_only": self.guardrails_config.force_analyze_only,
-            "max_order_usd": self.guardrails_config.max_order_usd,
+            "max_order_usd": guardrails.effective_max_order_usd(),
+            "max_position_pct": self.guardrails_config.max_position_pct,
             "allowed_tickers": self.guardrails_config.allowed_tickers,
             "backtest_passed": evaluated.passed,
+            "bankroll": guardrails.bankroll_summary(),
         }
 
         daily_digest, weekly_analysis = analyzer.analyze_two_stage(
@@ -121,12 +148,27 @@ class TradingAgentRunner:
         save_snapshot(intelligence, self.snapshot_path)
         save_daily_digest(self.log_dir, daily_digest, {"run_id": run_id, "stage": 1})
 
-        # Step 4: Validate trade intents from Stage 2
-        raw_intents = analyzer.extract_trade_intents(weekly_analysis, self.guardrails_config.max_order_usd)
+        # Step 4: Validate and clamp trade intents to dynamic bankroll
+        raw_intents = analyzer.extract_trade_intents(
+            weekly_analysis, guardrails.effective_max_order_usd()
+        )
         trade_results: list[dict[str, Any]] = []
+        g = self.guardrails_config
 
         for raw in raw_intents:
-            intent = TradeIntent(**raw)
+            clamped, adjust_notes = clamp_trade_amount(
+                raw["amount_usd"],
+                raw["ticker"],
+                raw["side"],
+                bankroll,
+                g.max_position_pct,
+                g.max_order_usd,
+            )
+            raw["amount_usd"] = clamped
+            if adjust_notes:
+                raw["sizing_notes"] = adjust_notes
+
+            intent = TradeIntent(**{k: v for k, v in raw.items() if k in TradeIntent.__dataclass_fields__})
             verdict = guardrails.validate_trade(intent)
             trade_results.append(
                 {"intent": raw, "allowed": verdict.allowed, "reasons": verdict.reasons, "executed": False}
@@ -148,10 +190,21 @@ class TradingAgentRunner:
             "intelligence": intelligence,
             "changes": changes,
             "backtest": backtest_summary,
+            "bankroll": bankroll.to_summary(),
             "trade_intents": trade_results,
             "account_connected": account_context is not None,
             "digests_this_week": len(load_recent_digests(self.log_dir, days=7)),
+            "email_sent": False,
         }
+
+        if self.send_email:
+            result["email_sent"] = notify_run_summary(
+                run_id,
+                weekly_analysis,
+                trade_results,
+                bankroll=bankroll.to_summary(),
+                mode=guardrails.effective_mode.value,
+            )
 
         log_path = self.log_dir / f"run_{run_id}.json"
         log_path.write_text(json.dumps(result, indent=2, default=str))
@@ -165,7 +218,6 @@ class TradingAgentRunner:
         try:
             client = RobinhoodMCPClient(
                 mcp_url=self.agent_config.robinhood.mcp_url,
-                oauth_server_url=self.agent_config.robinhood.oauth_server_url,
                 token_path=str(self.base_dir / ".tokens" / "robinhood_oauth.json"),
             )
             await client.connect()

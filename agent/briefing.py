@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from agent.analyzer import MarketAnalyzer
+from agent.bankroll import resolve_bankroll
 from agent.config import load_config
 from agent.digest_store import load_recent_digests, save_daily_digest
+from agent.notify import notify_briefing
 from broker.robinhood_client import RobinhoodMCPClient
 from data.intelligence import (
     build_intelligence_package,
@@ -30,10 +32,12 @@ class BriefingRunner:
         base_dir: Path | None = None,
         *,
         connect_robinhood: bool = True,
+        send_email: bool = True,
     ) -> None:
         self.base_dir = base_dir or Path(__file__).resolve().parent.parent
         self.agent_config, self.guardrails_config = load_config(self.base_dir)
         self.connect_robinhood = connect_robinhood
+        self.send_email = send_email
         self.log_dir = self.base_dir / self.agent_config.logging.directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_path = self.log_dir / self.SNAPSHOT_NAME
@@ -69,6 +73,16 @@ class BriefingRunner:
         save_snapshot(intelligence, self.snapshot_path)
         save_daily_digest(self.log_dir, briefing, {"run_id": run_id, "stage": 1})
 
+        bankroll_summary = None
+        if account_context:
+            br = self.guardrails_config.bankroll
+            bankroll_summary = resolve_bankroll(
+                mode=br.mode,
+                initial_usd=br.initial_usd,
+                ceiling_usd=br.ceiling_usd,
+                account_context=account_context,
+            ).to_summary()
+
         result = {
             "run_id": run_id,
             "type": "briefing",
@@ -77,13 +91,18 @@ class BriefingRunner:
             "changes": changes,
             "briefing": briefing,
             "account_connected": account_context is not None,
+            "bankroll": bankroll_summary,
             "digests_this_week": len(load_recent_digests(self.log_dir, days=7)),
+            "email_sent": False,
         }
 
         log_path = self.log_dir / f"briefing_{run_id}.json"
         log_path.write_text(json.dumps(result, indent=2, default=str))
         md_path = self.log_dir / f"briefing_{run_id}.md"
         md_path.write_text(briefing)
+
+        if self.send_email:
+            result["email_sent"] = notify_briefing(run_id, briefing, bankroll=bankroll_summary)
 
         logger.info("Stage 1 briefing saved: %s", md_path)
         return result
@@ -92,7 +111,6 @@ class BriefingRunner:
         try:
             client = RobinhoodMCPClient(
                 mcp_url=self.agent_config.robinhood.mcp_url,
-                oauth_server_url=self.agent_config.robinhood.oauth_server_url,
                 token_path=str(self.base_dir / ".tokens" / "robinhood_oauth.json"),
             )
             await client.connect()

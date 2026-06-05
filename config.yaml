@@ -1,41 +1,91 @@
-# Trading agent configuration
-# Start in analyze_only mode — no orders will be placed.
-
-mode: analyze_only  # analyze_only | auto_execute
-
+mode: analyze_only
+engine: boss
 watchlist:
-  - SPY
-  - QQQ
-  - AAPL
-  - MSFT
-  - NVDA
-
+- ARWR
+- DNLI
+- FATE
+- PTGX
+- RVMD
+- ACLX
+- IMCR
+- CRSP
 backtest:
   lookback_days: 365
-  initial_capital: 10000
-  strategy: momentum  # momentum | mean_reversion | sma_crossover
-  # Must pass these before auto_execute is allowed (enforced by guardrails)
-  min_sharpe_ratio: 0.5
-  min_win_rate_pct: 45
-  max_drawdown_pct: 20
-  min_total_return_pct: 5
-
+  initial_capital: 150
+  strategy: ensemble_weighted
+ensemble:
+  weights:
+    kronos: 0.3462
+    hmm: 0.336
+    third_leg: 0.3179
+  third_leg_model: bayesian_changepoint
+  rebalance_days: 5
+  min_combined_score: 0.3
+  backtest_use_kronos: false
+  backtest_use_third_leg: false
+boss:
+  enabled: true
+  min_combined_score: 0.3
+  strategist_weight: 0.4
+  weights_path: logs/boss_weights.json
+  paper_portfolio_path: logs/paper_portfolio.json
+  learning_rate: 0.08
+  training:
+    lookback_days: 730
+    warmup_days: 252
+    rebalance_days: 5
+    forward_days: 5
+    min_train_samples: 12
+    use_kronos: false
+    use_third_leg: true
+    third_leg_model: bayesian_changepoint
+bear_mode:
+  enabled: true
+  min_news_score: 0.08
+  block_metrics_only: true
+  oversold_rsi: 38.0
+  stop_tighten_pct: 0.2
+  tp1_r: 0.75
+  tp2_r: 1.5
+  tp3_r: 2.0
+pharma:
+  enabled: true
+  max_market_cap_b: 20.0
+  small_cap_boost: 0.25
+  news_weight: 0.1
+  news_headlines: 8
+  benchmark_ticker: XBI
+hmm:
+  n_states: 3
+  lookback: 252
+  vol_window: 20
+bayesian_changepoint:
+  lookback: 252
+  penalty: 3.0
+  min_segment: 10
+tft:
+  input_chunk_length: 60
+  output_chunk_length: 5
+  train_length: 200
+  hidden_size: 16
+  n_epochs: 5
+kronos:
+  enabled: true
+  model_id: NeoQuasar/Kronos-mini
+  tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
+  lookback: 400
+  pred_len: 5
+  temperature: 0.6
+  top_p: 0.9
+  sample_count: 3
 llm:
   model: claude-sonnet-4-20250514
   max_tokens: 4096
-
 robinhood:
   mcp_url: https://agent.robinhood.com/mcp/trading
-  oauth_server_url: https://agent.robinhood.com
-
 logging:
   directory: logs
   level: INFO
-
-# Retail investor support — information, time, and literacy gaps
 retail:
-  benchmark_ticker: SPY
-  news_headlines_per_ticker: 3
-  plain_english: true
-  include_glossary: true
-  max_read_minutes: 2
+  benchmark_ticker: XBI
+  news_headlines_per_ticker: 5

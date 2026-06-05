@@ -1,12 +1,12 @@
-"""Streamlit dashboard for the trading agent."""
+"""Minimal dashboard — progress chart, active investing toggle, paper run."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent
@@ -16,248 +16,126 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-from agent.briefing import BriefingRunner
+import importlib
+
+import agent.config as _cfg_mod
+
+importlib.reload(_cfg_mod)
+
 from agent.config import load_config
-from agent.runner import TradingAgentRunner
-from backtest.engine import run_backtest
-from data.intelligence import build_intelligence_package, compute_changes, load_snapshot
-
-LOG_DIR = ROOT / "logs"
-SNAPSHOT_PATH = LOG_DIR / "latest_intelligence.json"
-
-
-def _list_reports(prefix: str) -> list[Path]:
-    if not LOG_DIR.exists():
-        return []
-    return sorted(LOG_DIR.glob(f"{prefix}_*.md"), reverse=True)
-
-
-def _load_json_reports(prefix: str) -> list[dict]:
-    reports = []
-    for path in sorted(LOG_DIR.glob(f"{prefix}_*.json"), reverse=True):
-        try:
-            reports.append(json.loads(path.read_text()))
-        except json.JSONDecodeError:
-            continue
-    return reports
-
-
-def _run_async(coro):
-    return asyncio.run(coro)
-
-
-st.set_page_config(
-    page_title="Trading Agent",
-    page_icon="📊",
-    layout="wide",
+from agent.runtime_state import (
+    append_progress,
+    load_progress,
+    load_state,
+    set_active_investing,
 )
 
-st.title("Trading Agent Dashboard")
-st.caption("Plain-English market briefings for retail investors — analyze-only by default.")
+st.set_page_config(page_title="Boss Agent", layout="wide")
 
 agent_cfg, guard_cfg = load_config(ROOT)
+initial = guard_cfg.bankroll.initial_usd
 
-with st.sidebar:
-    st.header("Controls")
-    connect_robinhood = st.toggle("Connect Robinhood", value=False)
-    st.divider()
-    st.subheader("Run agent")
-    if st.button("Daily Briefing (2 min)", use_container_width=True):
-        with st.spinner("Gathering news and writing briefing..."):
-            try:
-                result = _run_async(
-                    BriefingRunner(ROOT, connect_robinhood=connect_robinhood).run()
-                )
-                st.session_state["last_briefing"] = result["briefing"]
-                st.session_state["last_run_id"] = result["run_id"]
-                st.success(f"Briefing saved: briefing_{result['run_id']}.md")
-            except Exception as exc:
-                st.error(f"Briefing failed: {exc}")
-                st.info("Make sure ANTHROPIC_API_KEY is set in trading-agent/.env")
+# Seed chart with starting equity if empty
+if not load_progress(ROOT):
+    append_progress(ROOT, equity_usd=initial, mode="start", pick=None)
 
-    if st.button("Full Analysis (2-stage)", use_container_width=True):
-        with st.spinner("Backtest → Stage 1 daily → Stage 2 weekly..."):
-            try:
-                result = _run_async(
-                    TradingAgentRunner(ROOT, connect_robinhood=connect_robinhood).run()
-                )
-                st.session_state["last_daily"] = result.get("daily_digest", "")
-                st.session_state["last_analysis"] = result["analysis"]
-                st.session_state["last_run_id"] = result["run_id"]
-                st.success(f"Saved: daily_{result['run_id']}.md + analysis_{result['run_id']}.md")
-            except Exception as exc:
-                st.error(f"Analysis failed: {exc}")
-                st.info("Make sure ANTHROPIC_API_KEY is set in trading-agent/.env")
+st.title("Boss Agent")
+st.caption("3 workers → boss decides")
 
-    st.divider()
-    if st.button("Run Backtest vs SPY", use_container_width=True):
-        with st.spinner("Running backtest..."):
-            report = run_backtest(
-                agent_cfg.watchlist,
-                agent_cfg.backtest.strategy,
-                agent_cfg.backtest.lookback_days,
-                agent_cfg.backtest.initial_capital,
-                agent_cfg.retail.benchmark_ticker,
-            )
-            st.session_state["backtest_report"] = report
-
-    st.divider()
-    st.subheader("Mode")
-    mode = "analyze_only" if guard_cfg.force_analyze_only else agent_cfg.mode
-    st.info(f"**{mode}** — no trades will execute.")
-
-tab_home, tab_briefings, tab_analysis, tab_market, tab_backtest = st.tabs(
-    ["Home", "Daily Digests", "Weekly Analysis", "Market Data", "Backtest vs SPY"]
-)
-
-with tab_home:
-    st.subheader("Start here")
-    st.markdown(
-        """
-        1. Set your **API key** in `trading-agent/.env` (`ANTHROPIC_API_KEY=...`)
-        2. Click **Daily Briefing** in the sidebar for a quick 2-minute read
-        3. Use **Full Analysis** weekly for deeper review with backtest context
-
-        Reports are also saved to the `logs/` folder as markdown files.
-        """
+trial_cap = guard_cfg.max_order_usd
+trial_pct = guard_cfg.max_position_pct
+if trial_cap:
+    st.info(
+        f"**Live trial cap:** ${trial_cap:.0f} max per order ({trial_pct:.0f}% of ~${initial:.0f} account). "
+        f"Max {guard_cfg.max_daily_trades} trade/day · {guard_cfg.max_open_positions} open position."
     )
 
-    col1, col2, col3 = st.columns(3)
-    briefings = _list_reports("briefing")
-    analyses = _list_reports("analysis")
-    col1.metric("Briefings saved", len(briefings))
-    col2.metric("Analyses saved", len(analyses))
-    col3.metric("Watchlist size", len(agent_cfg.watchlist))
+# --- Progress chart ---
+history = load_progress(ROOT)
+if history:
+    df = pd.DataFrame(history)
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.sort_values("time")
+    st.subheader("Progress")
+    st.line_chart(df.set_index("time")["equity_usd"], height=320)
+    latest = df.iloc[-1]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Equity", f"${latest['equity_usd']:.2f}")
+    c2.metric("Return", f"{(latest['equity_usd'] / initial - 1) * 100:+.1f}%")
+    c3.metric("Last pick", latest.get("pick") or "cash")
+else:
+    st.info("Run paper practice to start the chart.")
 
-    if "last_briefing" in st.session_state:
-        st.divider()
-        st.subheader("Latest briefing")
-        st.markdown(st.session_state["last_briefing"])
+st.divider()
 
-with tab_briefings:
-    st.subheader("Daily briefings")
-    reports = _list_reports("briefing")
-    if not reports:
-        st.info("No briefings yet. Click **Daily Briefing** in the sidebar.")
-    else:
-        selected = st.selectbox("Select briefing", reports, format_func=lambda p: p.name)
-        if selected:
-            st.markdown(selected.read_text())
+# --- Active investing toggle ---
+state = load_state(ROOT)
+investing = st.toggle(
+    "Active investing",
+    value=state.get("active_investing", False),
+    help="OFF = paper practice only. ON = boss may place real Robinhood orders when you run.",
+)
 
-with tab_analysis:
-    st.subheader("Full analysis reports")
-    reports = _list_reports("analysis")
-    if not reports:
-        st.info("No analyses yet. Click **Full Analysis** in the sidebar.")
-    else:
-        selected = st.selectbox("Select analysis", reports, format_func=lambda p: p.name)
-        if selected:
-            st.markdown(selected.read_text())
+if investing != state.get("active_investing"):
+    set_active_investing(ROOT, investing)
+    st.rerun()
 
-        json_reports = _load_json_reports("run")
-        if json_reports:
-            latest = json_reports[0]
-            st.divider()
-            st.subheader("Trade intents (from latest run)")
-            intents = latest.get("trade_intents", [])
-            if not intents:
-                st.write("No trade recommendations in latest run.")
-            for item in intents:
-                status = "✅ Allowed" if item.get("allowed") else "🚫 Blocked"
-                st.write(f"**{status}** — {item.get('intent')}")
+if investing:
+    st.warning(
+        f"Live investing ON — orders capped at **${trial_cap or 15:.0f}** ({trial_pct:.0f}%) during market hours."
+    )
+else:
+    st.success("Paper mode — no real orders.")
 
-with tab_market:
-    st.subheader("Live market snapshot")
-    if st.button("Refresh market data"):
-        st.session_state.pop("market_pkg", None)
+# --- Run ---
+if st.button("Paper run practice", type="primary", use_container_width=True):
+    with st.spinner("Boss + 3 workers..."):
+        try:
+            if investing:
+                from agent.boss_trader import BossTrader
 
-    if "market_pkg" not in st.session_state:
-        with st.spinner("Fetching quotes, news, and fundamentals..."):
-            previous = load_snapshot(SNAPSHOT_PATH)
-            pkg = build_intelligence_package(
-                agent_cfg.watchlist,
-                news_per_ticker=agent_cfg.retail.news_headlines_per_ticker,
-                benchmark=agent_cfg.retail.benchmark_ticker,
-            )
-            changes = compute_changes(pkg, previous)
-            st.session_state["market_pkg"] = pkg
-            st.session_state["market_changes"] = changes
+                result = asyncio.run(BossTrader(ROOT, dry_run=False).run())
+                pick = result["signal"]["target_ticker"] or "cash"
+                eq = result["bankroll"]["equity_usd"]
+                st.session_state["last_executive"] = result.get("executive")
+                st.session_state["last_msg"] = f"Live: {pick} · ${eq:.2f}"
+            else:
+                from agent.boss.paper_runner import run_paper_session
 
-    pkg = st.session_state.get("market_pkg", {})
-    changes = st.session_state.get("market_changes", {})
+                result = run_paper_session(ROOT, update_weights=True)
+                pick = result["decision"]["target"] or "cash"
+                eq = result["portfolio"]["equity_usd"]
+                st.session_state["last_executive"] = result["decision"].get("executive")
+                st.session_state["last_msg"] = f"Paper: {pick} · ${eq:.2f}"
+        except Exception as exc:
+            st.session_state["last_msg"] = f"Error: {exc}"
+    st.rerun()
 
-    if changes.get("has_previous"):
-        st.warning(f"Changes since {changes.get('since', 'last run')}")
-        if changes.get("price_moves"):
-            st.write("**Price moves:**", changes["price_moves"])
-        if changes.get("new_headlines"):
-            st.write("**New headlines:**", changes["new_headlines"])
-    else:
-        st.info(changes.get("message", "Run a briefing to start tracking changes."))
+if investing:
+    st.caption("Active investing ON — **Paper run practice** will place real orders.")
+if msg := st.session_state.get("last_msg"):
+    st.caption(msg)
 
-    quotes = pkg.get("quotes", {})
-    if quotes:
-        st.dataframe(
-            [
-                {
-                    "Ticker": t,
-                    "Price": q.get("last_close"),
-                    "Daily %": q.get("daily_change_pct"),
-                }
-                for t, q in quotes.items()
-            ],
-            use_container_width=True,
-            hide_index=True,
+exec_plan = st.session_state.get("last_executive")
+if exec_plan:
+    stress = exec_plan.get("market_stress") or {}
+    kind = exec_plan.get("signal_kind")
+    if stress or kind:
+        st.caption(
+            f"Market: {stress.get('label', '—')} · "
+            f"Signal: **{kind or '—'}** · "
+            f"{exec_plan.get('signal_note', '')}"
         )
-
-    benchmark = pkg.get("benchmark_comparison", {})
-    if benchmark:
-        st.subheader(f"vs {benchmark.get('benchmark', 'SPY')}")
-        st.json(benchmark.get("benchmark_returns", {}))
-
-    for ticker in agent_cfg.watchlist:
-        t = ticker.upper()
-        with st.expander(f"{t} — news & fundamentals"):
-            fund = pkg.get("fundamentals", {}).get(t, {})
-            news = pkg.get("news", {}).get(t, [])
-            st.write("**Fundamentals:**", fund)
-            for headline in news:
-                st.write(f"- {headline.get('title')} ({headline.get('publisher')})")
-
-with tab_backtest:
-    st.subheader("Strategy vs SPY buy-and-hold")
-    report = st.session_state.get("backtest_report")
-    if not report:
-        st.info("Click **Run Backtest vs SPY** in the sidebar.")
-    else:
-        s = report.aggregate
-        b = report.benchmark_comparison.benchmark if report.benchmark_comparison else None
-        c = report.benchmark_comparison
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Strategy CAGR", f"{s.cagr_pct:.1f}%")
-        col2.metric("Strategy Sharpe", f"{s.sharpe_ratio:.2f}")
-        col3.metric("Strategy Calmar", f"{s.calmar_ratio:.2f}")
-
-        if b and c:
-            st.divider()
-            col1, col2, col3 = st.columns(3)
-            col1.metric(f"{c.benchmark_ticker} CAGR", f"{b.cagr_pct:.1f}%", f"{c.cagr_spread_pct:+.1f}%")
-            col2.metric(f"{c.benchmark_ticker} Sharpe", f"{b.sharpe_ratio:.2f}", f"{c.sharpe_spread:+.2f}")
-            col3.metric(f"{c.benchmark_ticker} Calmar", f"{b.calmar_ratio:.2f}", f"{c.calmar_spread:+.2f}")
-            st.info(c.summary)
-
-        st.dataframe(
-            [
-                {
-                    "Ticker": t,
-                    "CAGR %": m.cagr_pct,
-                    "Sharpe": m.sharpe_ratio,
-                    "Calmar": m.calmar_ratio,
-                    "Max DD %": m.max_drawdown_pct,
-                }
-                for t, m in report.per_ticker.items()
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+if exec_plan and exec_plan.get("trade_plan"):
+    tp = exec_plan["trade_plan"]
+    st.subheader("Executive trade plan")
+    st.write(exec_plan.get("strategist_summary", ""))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Entry", f"${tp['entry']:.2f}")
+    c2.metric("Stop loss", f"${tp['stop_loss']:.2f}")
+    c3.metric("Target 1", f"${tp['take_profit_1']:.2f}")
+    c4.metric("Target 2/3", f"${tp['take_profit_2']:.2f} / ${tp['take_profit_3']:.2f}")
+    st.caption(
+        f"Regime: {exec_plan.get('regime')} · MACD: {exec_plan.get('macd')} · "
+        f"RSI: {exec_plan.get('rsi')} · {exec_plan.get('volume', '')}"
+    )

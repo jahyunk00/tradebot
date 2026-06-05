@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from agent.bankroll import BankrollSnapshot, clamp_trade_amount
 from agent.config import AgentConfig, GuardrailsConfig
 
 
@@ -65,6 +66,7 @@ class Guardrails:
         agent_config: AgentConfig,
         guardrails_config: GuardrailsConfig,
         *,
+        bankroll: BankrollSnapshot | None = None,
         backtest_result: BacktestResult | None = None,
         trades_today: int = 0,
         last_trade_at: datetime | None = None,
@@ -72,13 +74,45 @@ class Guardrails:
     ) -> None:
         self.agent_config = agent_config
         self.guardrails_config = guardrails_config
+        self.bankroll = bankroll
         self.backtest_result = backtest_result
         self.trades_today = trades_today
         self.last_trade_at = last_trade_at
         self.open_positions = open_positions
 
+    def effective_max_order_usd(self) -> float:
+        g = self.guardrails_config
+        if not self.bankroll:
+            return g.max_order_usd or g.bankroll.initial_usd
+        return self.bankroll.max_order_usd(g.max_position_pct, g.max_order_usd)
+
+    def bankroll_summary(self) -> dict[str, Any]:
+        g = self.guardrails_config
+        if not self.bankroll:
+            return {"initial_usd": g.bankroll.initial_usd, "mode": g.bankroll.mode}
+        b = self.bankroll
+        return {
+            **b.to_summary(),
+            "effective_equity_usd": b.effective_equity(),
+            "max_order_usd_now": self.effective_max_order_usd(),
+            "max_position_usd_now": b.max_position_usd(g.max_position_pct),
+            "note": (
+                f"Limits scale with equity. Started ${b.initial_usd:.2f}, "
+                f"now ${b.equity_usd:.2f} ({b.gain_pct:+.1f}% P/L)."
+                if b.mode == "dynamic"
+                else f"Fixed bankroll ${b.initial_usd:.2f}."
+            ),
+        }
+
     @property
     def effective_mode(self) -> TradingMode:
+        from pathlib import Path
+
+        from agent.runtime_state import is_active_investing
+
+        base = Path(__file__).resolve().parent.parent
+        if is_active_investing(base):
+            return TradingMode.AUTO_EXECUTE
         if self.guardrails_config.force_analyze_only:
             return TradingMode.ANALYZE_ONLY
         if self.agent_config.mode == "analyze_only":
@@ -86,11 +120,16 @@ class Guardrails:
         return TradingMode.AUTO_EXECUTE
 
     def can_execute_trades(self) -> GuardrailVerdict:
-        if self.effective_mode == TradingMode.ANALYZE_ONLY:
+        from pathlib import Path
+
+        from agent.runtime_state import is_active_investing
+
+        base = Path(__file__).resolve().parent.parent
+        live_via_toggle = is_active_investing(base)
+
+        if self.effective_mode == TradingMode.ANALYZE_ONLY and not live_via_toggle:
             return GuardrailVerdict.block(
-                "Trading is disabled: analyze-only mode is active.",
-                "Set guardrails.yaml force_analyze_only: false AND config.yaml mode: auto_execute "
-                "only after successful backtests.",
+                "Trading is disabled: turn on **Active investing** in the dashboard.",
             )
 
         if self.guardrails_config.require_backtest_pass:
@@ -102,6 +141,15 @@ class Guardrails:
                     f"Sharpe={self.backtest_result.sharpe_ratio:.2f}, "
                     f"win_rate={self.backtest_result.win_rate_pct:.1f}%, "
                     f"drawdown={self.backtest_result.max_drawdown_pct:.1f}%.",
+                )
+
+        if self.guardrails_config.require_beats_benchmark and self.backtest_result:
+            details = self.backtest_result.details or {}
+            vs = details.get("vs_benchmark")
+            if vs and not vs.get("beats_majority"):
+                return GuardrailVerdict.block(
+                    "Strategy does not beat SPY on enough metrics — tune strategy first.",
+                    str(vs.get("summary", "")),
                 )
 
         return GuardrailVerdict.allow()
@@ -120,8 +168,25 @@ class Guardrails:
 
         if intent.amount_usd <= 0:
             reasons.append("Order amount must be positive.")
-        elif intent.amount_usd > g.max_order_usd:
-            reasons.append(f"Order ${intent.amount_usd:.2f} exceeds max ${g.max_order_usd:.2f}.")
+        else:
+            max_order = self.effective_max_order_usd()
+            if intent.amount_usd > max_order:
+                reasons.append(
+                    f"Order ${intent.amount_usd:.2f} exceeds dynamic max ${max_order:.2f} "
+                    f"(equity ${self.bankroll.equity_usd:.2f} × {g.max_position_pct}% cap)."
+                    if self.bankroll
+                    else f"Order ${intent.amount_usd:.2f} exceeds max ${max_order:.2f}."
+                )
+            if intent.side.lower() == "buy" and self.bankroll:
+                room = self.bankroll.remaining_room_usd(ticker, g.max_position_pct)
+                if intent.amount_usd > room:
+                    reasons.append(
+                        f"Order exceeds remaining room in {ticker} (${room:.2f} left at {g.max_position_pct}% cap)."
+                    )
+                if g.bankroll.require_cash_only and intent.amount_usd > self.bankroll.cash_usd:
+                    reasons.append(
+                        f"Order ${intent.amount_usd:.2f} exceeds available cash ${self.bankroll.cash_usd:.2f}."
+                    )
 
         if intent.order_type not in g.allowed_order_types:
             reasons.append(f"Order type '{intent.order_type}' not allowed.")
