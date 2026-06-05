@@ -89,7 +89,7 @@ def trades_from_broker_payload(payload: Any) -> tuple[int, datetime | None]:
     return count, last_at
 
 
-async def resolve_daily_trade_stats(
+def resolve_daily_trade_stats(
     base_dir: Path,
     *,
     broker_orders_payload: Any | None = None,
