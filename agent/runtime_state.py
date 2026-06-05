@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
+def _logs_dir(base_dir: Path) -> Path:
+    """Shared state dir — set STATE_DIR=/data when using a Railway volume."""
+    custom = os.getenv("STATE_DIR", "").strip()
+    if custom:
+        return Path(custom)
+    return base_dir / "logs"
+
+
 def _state_path(base_dir: Path) -> Path:
-    return base_dir / "logs" / "runtime_state.json"
+    return _logs_dir(base_dir) / "runtime_state.json"
 
 
 def _progress_path(base_dir: Path) -> Path:
-    return base_dir / "logs" / "progress_history.json"
+    return _logs_dir(base_dir) / "progress_history.json"
 
 
 def load_state(base_dir: Path) -> dict[str, Any]:
@@ -65,7 +74,11 @@ def trial_limits(base_dir: Path) -> dict[str, Any]:
 
 
 def is_active_investing(base_dir: Path) -> bool:
-    return bool(load_state(base_dir).get("active_investing"))
+    state = load_state(base_dir)
+    if "active_investing" in state and state.get("updated_at"):
+        return bool(state.get("active_investing"))
+    env = os.getenv("ACTIVE_INVESTING", "false").lower()
+    return env in ("1", "true", "yes")
 
 
 def append_progress(

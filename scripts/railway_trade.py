@@ -18,8 +18,11 @@ sys.path.insert(0, str(ROOT))
 
 def _bootstrap() -> None:
     """Seed logs, OAuth tokens, and active-investing flag for ephemeral cron runs."""
-    logs = ROOT / "logs"
+    from agent.runtime_state import _logs_dir
+
+    logs = _logs_dir(ROOT)
     logs.mkdir(parents=True, exist_ok=True)
+
     tokens_dir = ROOT / ".tokens"
     tokens_dir.mkdir(parents=True, exist_ok=True)
     token_path = tokens_dir / "robinhood_oauth.json"
@@ -35,16 +38,19 @@ def _bootstrap() -> None:
     if not weights_path.exists():
         seed = ROOT / "deploy" / "railway" / "boss_weights.json"
         if seed.exists():
+            weights_path.parent.mkdir(parents=True, exist_ok=True)
             weights_path.write_text(seed.read_text())
 
-    if os.getenv("ACTIVE_INVESTING", "true").lower() in ("1", "true", "yes"):
-        state_path = logs / "runtime_state.json"
+    state_path = logs / "runtime_state.json"
+    if not state_path.exists():
+        active = os.getenv("ACTIVE_INVESTING", "false").lower() in ("1", "true", "yes")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(
             json.dumps(
                 {
-                    "active_investing": True,
+                    "active_investing": active,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "source": "railway",
+                    "source": "railway_bootstrap",
                 },
                 indent=2,
             )

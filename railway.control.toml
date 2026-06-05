@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.control"
+
+[deploy]
+startCommand = "python -m uvicorn web.control_app:app --host 0.0.0.0 --port $PORT"
+restartPolicyType = "ON_FAILURE"
