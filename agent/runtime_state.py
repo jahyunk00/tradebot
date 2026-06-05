@@ -10,11 +10,21 @@ from typing import Any
 
 
 def _logs_dir(base_dir: Path) -> Path:
-    """Shared state dir — set STATE_DIR=/data when using a Railway volume."""
+    """Shared state dir — optional STATE_DIR (e.g. Railway volume at /data)."""
     custom = os.getenv("STATE_DIR", "").strip()
     if custom:
-        return Path(custom)
-    return base_dir / "logs"
+        p = Path(custom)
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            probe = p / ".write_probe"
+            probe.write_text("ok")
+            probe.unlink(missing_ok=True)
+            return p
+        except OSError:
+            pass
+    fallback = base_dir / "logs"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def _state_path(base_dir: Path) -> Path:
