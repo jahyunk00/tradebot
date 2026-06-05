@@ -84,7 +84,7 @@ def trial_limits(base_dir: Path) -> dict[str, Any]:
 
 
 def is_active_investing(base_dir: Path) -> bool:
-    """Env var wins when set explicitly (Railway control panel sync)."""
+    """Env var wins when set explicitly; otherwise use persisted control-panel state."""
     env = os.getenv("ACTIVE_INVESTING", "").strip().lower()
     if env in ("1", "true", "yes"):
         return True

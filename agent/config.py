@@ -188,12 +188,21 @@ class PaperTrialsSettings(BaseModel):
     bear_min_model_score: float = 0.18
 
 
+class LaunchScheduleSettings(BaseModel):
+    """Pilot live trading at reduced size until live_start_date, then full bankroll."""
+    enabled: bool = True
+    live_start_date: str = "2026-06-09"
+    pilot_bankroll_usd: float = 50.0
+    live_full_bankroll: bool = True
+
+
 class AgentConfig(BaseModel):
     mode: Literal["analyze_only", "auto_execute"] = "analyze_only"
     engine: Literal["rules", "llm", "kronos", "ensemble", "boss"] = "boss"
     watchlist: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "AAPL"])
     universe: UniverseSettings = Field(default_factory=UniverseSettings)
     paper_trials: PaperTrialsSettings = Field(default_factory=PaperTrialsSettings)
+    launch_schedule: LaunchScheduleSettings = Field(default_factory=LaunchScheduleSettings)
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     robinhood: RobinhoodConfig = Field(default_factory=RobinhoodConfig)

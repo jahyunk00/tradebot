@@ -34,6 +34,11 @@ paper_trials:
   bear_min_sessions: 1
   bear_min_return_pct: 0.5
   bear_min_model_score: 0.18
+launch_schedule:
+  enabled: true
+  live_start_date: "2026-06-09"
+  pilot_bankroll_usd: 50
+  live_full_bankroll: true
 backtest:
   lookback_days: 365
   initial_capital: 100

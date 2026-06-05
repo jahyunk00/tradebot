@@ -18,6 +18,7 @@ from agent.rules_signals import LiveSignal, parse_positions
 from agent.rules_trader import RulesTrader
 from agent.portfolio_plan import build_portfolio_trade_plan, pick_targets
 from agent.paper_trials import live_promoted_tickers, run_paper_trials
+from agent.launch_schedule import apply_phase_to_guardrails, resolve_trading_phase
 from agent.trade_ledger import record_trade, resolve_daily_trade_stats
 from agent.watchlist import resolve_watchlist
 from backtest.engine import run_backtest
@@ -37,6 +38,10 @@ class BossTrader(RulesTrader):
         retail = self.agent_config.retail
         weights_path = self.base_dir / self.agent_config.boss.weights_path
         weights = load_boss_weights(weights_path, fallback=weights_from_config(self.agent_config))
+
+        phase = resolve_trading_phase(self.agent_config, self.guardrails_config)
+        self.guardrails_config = apply_phase_to_guardrails(self.guardrails_config, phase)
+        logger.info("Trading phase: %s — %s", phase.name, phase.message)
 
         watchlist, screener_meta = resolve_watchlist(self.base_dir, self.agent_config)
         benchmark = retail.benchmark_ticker.upper()
@@ -224,6 +229,8 @@ class BossTrader(RulesTrader):
         result = {
             "run_id": run_id,
             "engine": "boss",
+            "trading_phase": phase.name,
+            "phase_message": phase.message,
             "dry_run": self.dry_run,
             "mode": mode.value,
             "strategy": "boss_ensemble",
@@ -262,7 +269,7 @@ class BossTrader(RulesTrader):
         append_progress(
             self.base_dir,
             equity_usd=float(bankroll.equity_usd),
-            mode="live" if not self.dry_run else "dry_run",
+            mode="pilot" if phase.name == "pilot" else ("live" if not self.dry_run else "dry_run"),
             pick=primary,
         )
         return result

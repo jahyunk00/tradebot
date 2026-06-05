@@ -9,8 +9,8 @@ bankroll:
   require_cash_only: true
   reinvest_profits: true
 
-# $100 → growth trial: $30 per order (~30% of account), multiple intraday runs
-max_order_usd: 30
+# Live launch Monday — until then pilot at $50 bankroll cap. Full sizing after live_start_date.
+max_order_usd: null
 max_position_pct: 30
 max_daily_trades: 12
 max_open_positions: 3
