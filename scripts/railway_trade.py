@@ -42,19 +42,18 @@ def _bootstrap() -> None:
             weights_path.write_text(seed.read_text())
 
     state_path = logs / "runtime_state.json"
-    if not state_path.exists():
-        active = os.getenv("ACTIVE_INVESTING", "false").lower() in ("1", "true", "yes")
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
-            json.dumps(
-                {
-                    "active_investing": active,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "source": "railway_bootstrap",
-                },
-                indent=2,
-            )
-        )
+    active = os.getenv("ACTIVE_INVESTING", "false").lower() in ("1", "true", "yes")
+    existing: dict = {}
+    if state_path.exists():
+        try:
+            existing = json.loads(state_path.read_text())
+        except json.JSONDecodeError:
+            existing = {}
+    existing["active_investing"] = active
+    existing["updated_at"] = datetime.now(timezone.utc).isoformat()
+    existing["source"] = "railway_env_sync"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(existing, indent=2))
 
 
 def _notify(result: dict) -> None:

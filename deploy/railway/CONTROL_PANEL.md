@@ -1,82 +1,70 @@
-# Control panel on Railway (toggle active investing from your phone)
+# Web control panel
 
-The **tradebot** service is a cron job (no always-on UI). Add a second **web** service for the toggle page.
+Toggle **Active investing** from your phone — no Streamlit required.
 
-## Fix `pip: command not found` build errors
+## Local (Mac)
 
-That error happens when Railway uses **Nixpacks/Railpack** with `RAILPACK_INSTALL_CMD` instead of the **Dockerfile**.
-
-1. In Railway → **tradebot** → **Settings** → **Build**
-   - Builder: **Dockerfile**
-   - Dockerfile path: `Dockerfile`
-2. **Delete** these variables if present (they break the build):
-   - `RAILPACK_INSTALL_CMD`
-   - `RAILPACK_START_CMD`
-3. Redeploy
-
-The repo’s `railway.toml` already points at `Dockerfile`.
-
----
-
-## Step 1 — Create a shared volume
-
-1. Railway project → **+ New** → **Volume**
-2. Name: `tradebot-state`
-3. Attach to **tradebot** service → mount path: **`/data`**
-4. (After step 2) attach the same volume to **tradebot-control** at **`/data`**
-
-## Step 2 — Add control web service
-
-1. **+ New** → **GitHub Repo** → same `tradebot` repo
-2. Name the service: **`tradebot-control`**
-3. **Settings** → **Build**:
-   - Config file path: **`railway.control.toml`**
-   - (Uses `Dockerfile.control` — always-on web app, not cron)
-4. **Settings** → **Deploy**:
-   - **No cron schedule** (leave empty — this is a web server)
-   - Generate domain: **Settings → Networking → Generate domain**
-5. **Variables** (tradebot-control):
-
-| Variable | Value |
-|----------|--------|
-| `STATE_DIR` | `/data` |
-| `CONTROL_PIN` | your 4–6 digit PIN (e.g. `1234`) |
-
-6. **Variables** on **tradebot** (cron) — add:
-
-| Variable | Value |
-|----------|--------|
-| `STATE_DIR` | `/data` |
-
-Both services read/write **`/data/runtime_state.json`** on the shared volume.
-
-## Step 3 — Use the control page
-
-Open your Railway URL, e.g. `https://tradebot-control-production.up.railway.app`
-
-- **Green / Turn ON** → live trades allowed at next cron (9:35 AM ET)
-- **Red / Turn OFF** → cron runs but stays paper / blocks live orders
-
----
-
-## Local control (Mac)
-
-You already have this — no Railway needed:
+Double-click **`open-control.command`** or:
 
 ```bash
 cd trading-agent
-./open-dashboard.command
+source .venv/bin/activate
+pip install fastapi uvicorn
+python -m uvicorn web.control_app:app --host 127.0.0.0 --port 8080
 ```
 
-Toggle **Active investing** in Streamlit (uses `logs/runtime_state.json` locally, not Railway).
+Open http://localhost:8080
+
+Optional PIN: `CONTROL_PIN=1234 python -m uvicorn web.control_app:app --port 8080`
 
 ---
 
-## Two services summary
+## Railway (always-on URL)
 
-| Service | Type | Purpose |
-|---------|------|---------|
-| `tradebot` | Cron `35 13 * * 1-5` | Runs boss trade at market open |
-| `tradebot-control` | Web (always on) | Toggle active investing |
+### Quick setup
 
-Both share volume **`/data`** via `STATE_DIR=/data`.
+```bash
+chmod +x deploy/railway/setup_control.sh
+./deploy/railway/setup_control.sh
+```
+
+Or manually:
+
+1. Railway → **+ New** → GitHub repo `tradebot`
+2. Name: **`tradebot-control`**
+3. **Settings → Build** → Config file: **`railway.control.toml`**
+4. **Settings → Deploy** → leave cron **empty** (web server, not cron)
+5. **Networking** → Generate domain
+6. **Variables**:
+
+| Variable | Value |
+|----------|--------|
+| `CONTROL_PIN` | Your PIN (e.g. `4829`) |
+| `RAILWAY_API_TOKEN` | From [railway.app/account/tokens](https://railway.app/account/tokens) |
+| `RAILWAY_CRON_SERVICE_ID` | `8cceaaa7-dedb-482c-8da5-c5fd257270ef` (tradebot cron) |
+
+Railway auto-injects `RAILWAY_PROJECT_ID` and `RAILWAY_ENVIRONMENT_ID`.
+
+### How sync works
+
+When you tap **Turn ON/OFF**, the panel:
+
+1. Saves `runtime_state.json` locally
+2. Calls Railway API → sets `ACTIVE_INVESTING` on the **tradebot** cron service
+
+The next cron run (9:35 AM ET) reads that env var — **no shared volume needed**.
+
+---
+
+## Two services
+
+| Service | Type | URL |
+|---------|------|-----|
+| `tradebot` | Cron | No public URL |
+| `tradebot-control` | Web | Your Railway domain |
+
+---
+
+## API
+
+`GET /api/status` — JSON with toggle state, equity, guardrails, last run.

@@ -84,11 +84,13 @@ def trial_limits(base_dir: Path) -> dict[str, Any]:
 
 
 def is_active_investing(base_dir: Path) -> bool:
-    state = load_state(base_dir)
-    if "active_investing" in state and state.get("updated_at"):
-        return bool(state.get("active_investing"))
-    env = os.getenv("ACTIVE_INVESTING", "false").lower()
-    return env in ("1", "true", "yes")
+    """Env var wins when set explicitly (Railway control panel sync)."""
+    env = os.getenv("ACTIVE_INVESTING", "").strip().lower()
+    if env in ("1", "true", "yes"):
+        return True
+    if env in ("0", "false", "no"):
+        return False
+    return bool(load_state(base_dir).get("active_investing"))
 
 
 def append_progress(
