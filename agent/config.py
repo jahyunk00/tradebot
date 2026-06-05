@@ -113,6 +113,9 @@ class BossSettings(BaseModel):
     paper_portfolio_path: str = "logs/paper_portfolio.json"
     learning_rate: float = 0.05
     training: BossTrainingConfig = Field(default_factory=BossTrainingConfig)
+    portfolio_mode: Literal["single", "multi"] = "multi"
+    max_picks: int = 3
+    rotate_out: bool = False
 
 
 class BearModeSettings(BaseModel):
