@@ -40,8 +40,18 @@ def _latest_trade_run() -> dict[str, Any] | None:
         return None
 
 
+def _fmt_usd(value: float | None, *, fallback: str = "Full bankroll (%)") -> str:
+    if value is None:
+        return fallback
+    return f"${value:.0f}"
+
+
 def _dashboard_data() -> dict[str, Any]:
-    _, guard = load_config(ROOT)
+    from agent.launch_schedule import apply_phase_to_guardrails, resolve_trading_phase
+
+    agent_cfg, guard = load_config(ROOT)
+    phase = resolve_trading_phase(agent_cfg, guard)
+    guard = apply_phase_to_guardrails(guard, phase)
     state = load_state(ROOT)
     progress = load_progress(ROOT)
     last_run = _latest_trade_run()
@@ -53,6 +63,8 @@ def _dashboard_data() -> dict[str, Any]:
     elif last_run:
         equity = float(last_run.get("bankroll", {}).get("equity_usd", equity))
 
+    pilot_cap = phase.bankroll_ceiling_usd if phase.name == "pilot" else None
+
     return {
         "active": on,
         "updated_at": state.get("updated_at", ""),
@@ -60,12 +72,15 @@ def _dashboard_data() -> dict[str, Any]:
         "equity_usd": equity,
         "initial_usd": guard.bankroll.initial_usd,
         "max_order_usd": guard.max_order_usd,
+        "pilot_bankroll_usd": pilot_cap,
+        "trading_phase": phase.name,
+        "phase_message": phase.message,
         "max_daily_trades": guard.max_daily_trades,
         "max_open_positions": guard.max_open_positions,
         "progress": progress[-30:],
         "last_run": last_run,
         "railway_sync": railway_sync_configured(),
-        "cron_schedule": "9:35 AM ET · Mon–Fri",
+        "cron_schedule": "Every 30 min · US market hours · Mon–Fri",
     }
 
 
@@ -213,7 +228,8 @@ def _page(data: dict[str, Any], msg: str = "") -> str:
 
   <div class="card">
     <strong>Guardrails</strong>
-    <div class="row"><span>Max order</span>${data["max_order_usd"]:.0f}</div>
+    <div class="row"><span>Phase</span>{data["trading_phase"]}</div>
+    <div class="row"><span>Sizing</span>{_fmt_usd(data.get("pilot_bankroll_usd"), fallback=_fmt_usd(data["max_order_usd"], fallback="Full bankroll (position %)"))}</div>
     <div class="row"><span>Trades / day</span>{data["max_daily_trades"]}</div>
     <div class="row"><span>Open positions</span>{data["max_open_positions"]}</div>
     <div class="row"><span>Last cron run</span>{run_id}</div>

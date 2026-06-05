@@ -16,13 +16,8 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-import importlib
-
-import agent.config as _cfg_mod
-
-importlib.reload(_cfg_mod)
-
 from agent.config import load_config
+from agent.launch_schedule import resolve_trading_phase
 from agent.runtime_state import (
     append_progress,
     load_progress,
@@ -33,6 +28,7 @@ from agent.runtime_state import (
 st.set_page_config(page_title="Boss Agent", layout="wide")
 
 agent_cfg, guard_cfg = load_config(ROOT)
+phase = resolve_trading_phase(agent_cfg, guard_cfg)
 initial = guard_cfg.bankroll.initial_usd
 
 # Seed chart with starting equity if empty
@@ -44,7 +40,13 @@ st.caption("3 workers → boss decides")
 
 trial_cap = guard_cfg.max_order_usd
 trial_pct = guard_cfg.max_position_pct
-if trial_cap:
+pilot_cap = phase.bankroll_ceiling_usd if phase.name == "pilot" else None
+if pilot_cap:
+    st.info(
+        f"**Pilot mode until Monday:** live orders sized to **${pilot_cap:.0f}** bankroll cap "
+        f"({trial_pct:.0f}% max per position). Max {guard_cfg.max_daily_trades} trades/day."
+    )
+elif trial_cap:
     st.info(
         f"**Live trial cap:** ${trial_cap:.0f} max per order ({trial_pct:.0f}% of ~${initial:.0f} account). "
         f"Max {guard_cfg.max_daily_trades} trade/day · {guard_cfg.max_open_positions} open position."
@@ -81,9 +83,12 @@ if investing != state.get("active_investing"):
     st.rerun()
 
 if investing:
-    st.warning(
-        f"Live investing ON — orders capped at **${trial_cap or 15:.0f}** ({trial_pct:.0f}%) during market hours."
+    cap_label = (
+        f"${pilot_cap:.0f} pilot bankroll"
+        if pilot_cap
+        else (f"${trial_cap:.0f} per order" if trial_cap else "full bankroll")
     )
+    st.warning(f"Live investing ON — sizing: **{cap_label}** ({trial_pct:.0f}% max per position).")
 else:
     st.success("Paper mode — no real orders.")
 

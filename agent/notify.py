@@ -49,7 +49,7 @@ def send_email(subject: str, body: str, *, html: bool = False) -> bool:
         logger.info("Email sent to %s: %s", to_addr, subject)
         return True
     except Exception as exc:
-        logger.error("Email failed: %s", exc)
+        logger.warning("Email failed: %s", exc)
         return False
 
 
