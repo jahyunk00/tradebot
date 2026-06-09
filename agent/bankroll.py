@@ -102,6 +102,43 @@ def _pick_amount(pairs: list[tuple[str, float]], keywords: tuple[str, ...]) -> f
     return None
 
 
+def _pick_equity(pairs: list[tuple[str, float]]) -> float | None:
+    """Prefer portfolio totals; ignore get_equity_positions tool paths (false 'equity' match)."""
+    preferred = (
+        "get_portfolio.data.total_value",
+        "get_portfolio.data.equity_value",
+        "portfolio_value",
+        "total_value",
+        "account_value",
+        "net_liquid",
+    )
+    for token in preferred:
+        for path, val in pairs:
+            if val <= 0 or "positions[" in path or "get_equity_positions" in path:
+                continue
+            if token in path:
+                return val
+    return None
+
+
+def _pick_cash(pairs: list[tuple[str, float]]) -> float | None:
+    preferred = (
+        "get_portfolio.data.cash",
+        "buying_power.buying_power",
+        "unleveraged_buying_power",
+        "available_cash",
+        "settled_cash",
+        "cash_available",
+    )
+    for token in preferred:
+        for path, val in pairs:
+            if val <= 0:
+                continue
+            if token in path:
+                return val
+    return _pick_amount(pairs, ("cash", "buying_power"))
+
+
 def _extract_positions(account_context: dict[str, Any]) -> dict[str, float]:
     """Best-effort parse of ticker -> market value from MCP account data."""
     positions: dict[str, float] = {}
@@ -142,18 +179,14 @@ def resolve_bankroll(
         )
 
     pairs = _find_numbers(account_context)
-    equity = _pick_amount(
-        pairs,
-        ("equity", "portfolio_value", "total_value", "account_value", "net_liquid"),
-    )
-    cash = _pick_amount(
-        pairs,
-        ("cash", "buying_power", "available_cash", "settled_cash", "cash_available"),
-    )
+    equity = _pick_equity(pairs)
+    cash = _pick_cash(pairs)
     positions = _extract_positions(account_context)
 
     if equity is None and positions:
         equity = sum(positions.values()) + (cash or 0)
+    if equity is None and cash is not None:
+        equity = cash
     if equity is None:
         equity = initial_usd
     if cash is None:
