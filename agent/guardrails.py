@@ -168,7 +168,7 @@ class Guardrails:
 
         if intent.amount_usd <= 0:
             reasons.append("Order amount must be positive.")
-        else:
+        elif intent.side.lower() == "buy":
             max_order = self.effective_max_order_usd()
             if intent.amount_usd > max_order:
                 reasons.append(
@@ -177,7 +177,7 @@ class Guardrails:
                     if self.bankroll
                     else f"Order ${intent.amount_usd:.2f} exceeds max ${max_order:.2f}."
                 )
-            if intent.side.lower() == "buy" and self.bankroll:
+            if self.bankroll:
                 room = self.bankroll.remaining_room_usd(ticker, g.max_position_pct)
                 if intent.amount_usd > room:
                     reasons.append(

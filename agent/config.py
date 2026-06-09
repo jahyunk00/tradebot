@@ -104,6 +104,18 @@ class BossTrainingConfig(BaseModel):
     third_leg_model: Literal["bayesian_changepoint", "tft"] = "tft"
 
 
+class ExitRulesSettings(BaseModel):
+    """Auto-exit held positions on dips (stop) or rises (take profit / trailing)."""
+    enabled: bool = True
+    stop_loss_pct: float = 4.5
+    take_profit_pct: float = 7.0
+    take_profit_2_pct: float = 12.0
+    partial_take_profit: float = 0.5
+    trailing_stop_pct: float = 3.5
+    trailing_activate_pct: float = 4.0
+    use_strategist_levels: bool = True
+
+
 class BossSettings(BaseModel):
     """Boss agent orchestrates three leg agents with learned weights."""
     enabled: bool = True
@@ -117,6 +129,7 @@ class BossSettings(BaseModel):
     max_picks: int = 4
     rotate_out: bool = True
     momentum_weight: float = 0.5
+    exit_rules: ExitRulesSettings = Field(default_factory=ExitRulesSettings)
 
 
 class BearModeSettings(BaseModel):

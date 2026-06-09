@@ -97,6 +97,30 @@ def build_portfolio_trade_plan(
     for ticker in targets:
         t = ticker.upper()
         allocation = bankroll.max_position_usd(g.max_position_pct)
+        current_in_target = held.get(t, 0.0)
+
+        # If a target is already oversized, trim first so one winner
+        # does not consume most of the bankroll.
+        if current_in_target > allocation * 1.02:
+            trim_amount = round(current_in_target - allocation, 2)
+            if trim_amount >= 1.0:
+                plan.append(
+                    {
+                        "intent": TradeIntent(
+                            ticker=t,
+                            side="sell",
+                            amount_usd=trim_amount,
+                            order_type="market",
+                            rationale=(
+                                f"Trim {t} back to {g.max_position_pct:.0f}% position cap "
+                                f"for diversification."
+                            ),
+                        ),
+                        "kind": "rebalance_trim",
+                    }
+                )
+                current_in_target = round(current_in_target - trim_amount, 2)
+
         clamped, notes = clamp_trade_amount(
             allocation,
             t,
@@ -105,7 +129,6 @@ def build_portfolio_trade_plan(
             g.max_position_pct,
             g.max_order_usd,
         )
-        current_in_target = held.get(t, 0.0)
         buy_amount = round(max(clamped - current_in_target, 0), 2)
         if g.max_order_usd:
             buy_amount = min(buy_amount, g.max_order_usd)

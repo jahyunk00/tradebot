@@ -6,6 +6,7 @@ import logging
 import uuid
 from typing import Any
 
+from broker.order_result import order_error_message, order_succeeded
 from broker.robinhood_client import RobinhoodMCPClient, _pick_account_number
 
 logger = logging.getLogger(__name__)
@@ -72,4 +73,9 @@ class OrderExecutor:
 
         logger.info("Placing %s %s $%.2f", side, symbol, dollar_amount)
         result = await self.client.call_tool("place_equity_order", payload)
-        return {"dry_run": False, "result": result, "payload": payload}
+        response = {"dry_run": False, "result": result, "payload": payload}
+        err = order_error_message(response)
+        if err:
+            logger.error("Robinhood rejected %s %s $%.2f: %s", side, symbol, dollar_amount, err[:300])
+            response["broker_error"] = err
+        return response

@@ -123,9 +123,9 @@ def _pick_equity(pairs: list[tuple[str, float]]) -> float | None:
 
 def _pick_cash(pairs: list[tuple[str, float]]) -> float | None:
     preferred = (
-        "get_portfolio.data.cash",
         "buying_power.buying_power",
         "unleveraged_buying_power",
+        "get_portfolio.data.cash",
         "available_cash",
         "settled_cash",
         "cash_available",

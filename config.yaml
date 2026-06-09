@@ -61,6 +61,15 @@ boss:
   max_picks: 3
   rotate_out: true
   momentum_weight: 0.6
+  exit_rules:
+    enabled: true
+    stop_loss_pct: 4.5
+    take_profit_pct: 7.0
+    take_profit_2_pct: 12.0
+    partial_take_profit: 0.5
+    trailing_stop_pct: 3.5
+    trailing_activate_pct: 4.0
+    use_strategist_levels: true
   weights_path: logs/boss_weights.json
   paper_portfolio_path: logs/paper_portfolio.json
   learning_rate: 0.08

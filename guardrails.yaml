@@ -11,7 +11,7 @@ bankroll:
 
 # Growth sprint → $200 by Jun 20 (~1.5 weeks, +33%). Concentrated momentum, rotate during market hours.
 max_order_usd: null
-max_position_pct: 45
+max_position_pct: 33
 max_daily_trades: 12
 max_open_positions: 3
 
@@ -32,6 +32,6 @@ backtest_gate:
   max_drawdown_pct: 35
   min_total_return_pct: 0
 
-min_minutes_between_trades: 5
+min_minutes_between_trades: 0
 enforce_market_hours: true
 no_same_day_round_trip: true

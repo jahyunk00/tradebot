@@ -17,12 +17,14 @@ from agent.guardrails import Guardrails, TradeIntent, TradingMode
 from agent.rules_signals import LiveSignal, parse_positions
 from agent.rules_trader import RulesTrader
 from agent.portfolio_plan import build_portfolio_trade_plan, pick_targets
+from agent.position_exits import build_exit_plan, parse_position_lots
 from agent.paper_trials import live_promoted_tickers, run_paper_trials
 from agent.launch_schedule import apply_phase_to_guardrails, resolve_trading_phase
 from agent.trade_ledger import record_trade, resolve_daily_trade_stats
 from agent.watchlist import resolve_watchlist
 from backtest.engine import run_backtest
 from broker.executor import OrderExecutor
+from broker.order_result import extract_action_url, order_error_message, order_succeeded
 from broker.robinhood_client import RobinhoodMCPClient
 from data.market_data import fetch_history
 from data.trajectory import recent_momentum_by_ticker
@@ -104,6 +106,33 @@ class BossTrader(RulesTrader):
         if not positions and bankroll.positions:
             positions = bankroll.positions
 
+        position_lots = parse_position_lots(account_context)
+        held = []
+        for ticker, lot in position_lots.items():
+            t = ticker.upper()
+            qty = float(lot.get("quantity") or 0)
+            mv = float(lot.get("market_value") or 0)
+            if positions.get(t, 0) > 0 or mv > 0 or qty > 0:
+                held.append(t)
+        if held:
+            missing = [t for t in held if t not in history]
+            if missing:
+                history = {**history, **fetch_history(missing, lookback)}
+            # Some Robinhood payloads only include quantity + avg cost (no market_value).
+            # Mark held positions to current market value so sizing/rotation can rebalance.
+            for ticker in held:
+                if positions.get(ticker, 0) > 0:
+                    continue
+                lot = position_lots.get(ticker, {})
+                qty = float(lot.get("quantity") or 0)
+                if qty <= 0:
+                    continue
+                df = history.get(ticker)
+                if df is None or df.empty:
+                    continue
+                last_px = float(df["Close"].iloc[-1])
+                positions[ticker] = round(qty * last_px, 2)
+
         account_number = await executor.ensure_account(account_context)
         broker_orders = None
         try:
@@ -130,14 +159,36 @@ class BossTrader(RulesTrader):
             open_positions=len([v for v in positions.values() if v > 0]),
         )
 
-        trade_plan = build_portfolio_trade_plan(
-            targets,
+        exit_plan = build_exit_plan(
+            position_lots,
             positions=positions,
+            history=history,
+            agent_cfg=self.agent_config,
+            base_dir=self.base_dir,
+            executive=decision.executive,
+        )
+        adjusted_positions = dict(positions)
+        for step in exit_plan:
+            intent = step["intent"]
+            t = intent.ticker.upper()
+            held_val = adjusted_positions.get(t, 0.0)
+            if held_val <= 0:
+                continue
+            if intent.amount_usd >= held_val * 0.95:
+                adjusted_positions.pop(t, None)
+            else:
+                adjusted_positions[t] = round(max(held_val - intent.amount_usd, 0), 2)
+
+        entry_plan = build_portfolio_trade_plan(
+            targets,
+            positions=adjusted_positions,
             bankroll=bankroll,
             guardrails=guardrails,
             rationale=decision.rationale,
             rotate_out=boss.rotate_out or boss.portfolio_mode == "single",
         )
+        # Exits first (stops / profit-taking), then rotation and new entries
+        trade_plan = exit_plan + entry_plan
 
         executions: list[dict[str, Any]] = []
         mode = guardrails.effective_mode
@@ -157,6 +208,7 @@ class BossTrader(RulesTrader):
             market_stress=market_stress,
         )
         promotion_executions: list[dict[str, Any]] = []
+        broker_block: str | None = None
         can_promote_live = self.dry_run or (mode == TradingMode.AUTO_EXECUTE and can_trade.allowed)
         if can_promote_live and trials_report.get("enabled") and trials_report.get("promoted_this_run"):
             pt = self.agent_config.paper_trials
@@ -167,14 +219,26 @@ class BossTrader(RulesTrader):
                     review = await executor.place_market_order(
                         account_number, ticker, "buy", promo_usd, dry_run=self.dry_run
                     )
+                    ok = self.dry_run or order_succeeded(review)
+                    err = order_error_message(review) if not self.dry_run else None
+                    if err:
+                        broker_block = broker_block or err
                     promotion_executions.append(
-                        {"ticker": ticker, "usd": promo_usd, "executed": not self.dry_run, "result": review}
+                        {
+                            "ticker": ticker,
+                            "usd": promo_usd,
+                            "executed": ok,
+                            "broker_error": err,
+                            "result": review,
+                        }
                     )
-                    if not self.dry_run:
+                    if ok and not self.dry_run:
                         record_trade(self.base_dir, ticker=ticker, side="buy", amount_usd=promo_usd, executed=True)
                         guardrails.trades_today += 1
                         guardrails.last_trade_at = datetime.now(tz=Guardrails.ET)
-                    logger.info("Auto-promoted live buy: %s $%.0f", ticker, promo_usd)
+                        logger.info("Auto-promoted live buy: %s $%.0f", ticker, promo_usd)
+                    elif err:
+                        logger.error("Promotion buy failed %s: %s", ticker, err[:200])
                 except Exception as exc:
                     promotion_executions.append({"ticker": ticker, "error": str(exc)})
 
@@ -199,25 +263,34 @@ class BossTrader(RulesTrader):
                 executions.append(step_result)
                 continue
             try:
-                step_result["result"] = await executor.place_market_order(
+                placed = await executor.place_market_order(
                     account_number, intent.ticker, intent.side, intent.amount_usd, dry_run=False
                 )
-                step_result["executed"] = True
-                record_trade(
-                    self.base_dir,
-                    ticker=intent.ticker,
-                    side=intent.side,
-                    amount_usd=intent.amount_usd,
-                    executed=True,
-                )
-                guardrails.trades_today += 1
-                guardrails.last_trade_at = datetime.now(tz=Guardrails.ET)
-                if intent.side.lower() == "buy" and intent.ticker.upper() not in {
-                    t.upper() for t in positions if positions[t] > 0
-                }:
-                    guardrails.open_positions += 1
-                elif intent.side.lower() == "sell":
-                    guardrails.open_positions = max(0, guardrails.open_positions - 1)
+                step_result["result"] = placed
+                err = order_error_message(placed)
+                if err:
+                    step_result["executed"] = False
+                    step_result["broker_error"] = err
+                    step_result["reasons"] = [*verdict.reasons, err]
+                    broker_block = broker_block or err
+                    logger.error("Order rejected %s %s: %s", intent.side, intent.ticker, err[:200])
+                else:
+                    step_result["executed"] = True
+                    record_trade(
+                        self.base_dir,
+                        ticker=intent.ticker,
+                        side=intent.side,
+                        amount_usd=intent.amount_usd,
+                        executed=True,
+                    )
+                    guardrails.trades_today += 1
+                    guardrails.last_trade_at = datetime.now(tz=Guardrails.ET)
+                    if intent.side.lower() == "buy" and intent.ticker.upper() not in {
+                        t.upper() for t in positions if positions[t] > 0
+                    }:
+                        guardrails.open_positions += 1
+                    elif intent.side.lower() == "sell":
+                        guardrails.open_positions = max(0, guardrails.open_positions - 1)
             except Exception as exc:
                 step_result["reasons"] = [str(exc)]
                 step_result["allowed"] = False
@@ -258,9 +331,21 @@ class BossTrader(RulesTrader):
             },
             "bankroll": bankroll.to_summary(),
             "positions_before": positions,
+            "exit_plan": [
+                {
+                    "kind": s.get("kind"),
+                    "ticker": s["intent"].ticker,
+                    "amount_usd": s["intent"].amount_usd,
+                    "pnl_pct": s.get("pnl_pct"),
+                    "rationale": s["intent"].rationale,
+                }
+                for s in exit_plan
+            ],
             "trade_plan": executions,
             "can_execute": can_trade.allowed,
             "execute_block_reasons": can_trade.reasons,
+            "broker_block": broker_block,
+            "broker_setup_url": extract_action_url(broker_block) if broker_block else None,
         }
 
         out = self.log_dir / f"boss_trade_{run_id}.json"

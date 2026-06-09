@@ -52,19 +52,36 @@ def main() -> int:
         for r in result["execute_block_reasons"]:
             print(f"  - {r}")
 
+    if result.get("broker_block"):
+        print("\n*** ROBINHOOD BLOCKED ORDERS ***")
+        print(result["broker_block"][:800])
+        if url := result.get("broker_setup_url"):
+            print(f"\nFix here: {url}")
+
     print("\nTrades:")
+    for step in result.get("exit_plan") or []:
+        print(f"  [EXIT/{step.get('kind', '?').upper()}] {step.get('ticker')} ${step.get('amount_usd', 0):.2f} — {step.get('rationale', '')}")
     for step in result.get("trade_plan") or []:
         intent = step.get("intent")
         if not intent:
             continue
-        tag = "EXECUTED" if step.get("executed") else ("ALLOWED" if step.get("allowed") else "BLOCKED")
+        if step.get("executed"):
+            tag = "EXECUTED"
+        elif step.get("broker_error"):
+            tag = "BROKER_REJECTED"
+        elif step.get("allowed"):
+            tag = "ALLOWED"
+        else:
+            tag = "BLOCKED"
         print(f"  [{tag}] {intent.side.upper()} {intent.ticker} ${intent.amount_usd:.2f}")
         for reason in step.get("reasons") or []:
-            print(f"         {reason}")
+            print(f"         {reason[:300]}")
 
     run_id = result.get("run_id", "local")
     log = ROOT / "logs" / f"boss_trade_{run_id}.json"
     print(f"\nLog: {log}")
+    if result.get("broker_block"):
+        return 2
     return 0 if not result.get("execute_block_reasons") else 1
 
 
