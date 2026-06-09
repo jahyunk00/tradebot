@@ -1,17 +1,17 @@
 # Hard limits — the agent cannot override these programmatically.
 
-force_analyze_only: true
+force_analyze_only: false
 
 bankroll:
   mode: dynamic
-  initial_usd: 100
+  initial_usd: 150
   ceiling_usd: null
   require_cash_only: true
   reinvest_profits: true
 
-# Live launch Monday — until then pilot at $50 bankroll cap. Full sizing after live_start_date.
+# Growth sprint → $200 by end of next week (~+33%). Concentrated momentum, full cash deploy.
 max_order_usd: null
-max_position_pct: 30
+max_position_pct: 45
 max_daily_trades: 12
 max_open_positions: 3
 
@@ -32,6 +32,6 @@ backtest_gate:
   max_drawdown_pct: 35
   min_total_return_pct: 0
 
-min_minutes_between_trades: 15
+min_minutes_between_trades: 0
 enforce_market_hours: true
 no_same_day_round_trip: true
