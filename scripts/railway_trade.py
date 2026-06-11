@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
-def _bootstrap() -> None:
+def _bootstrap(*, force_token_refresh: bool = False) -> None:
     """Seed logs, OAuth tokens, and active-investing flag for ephemeral cron runs."""
     from agent.runtime_state import _logs_dir
 
@@ -29,9 +29,9 @@ def _bootstrap() -> None:
 
     b64 = os.getenv("ROBINHOOD_OAUTH_B64", "").strip()
     raw_json = os.getenv("ROBINHOOD_OAUTH_JSON", "").strip()
-    if b64 and not token_path.exists():
+    if b64 and (force_token_refresh or not token_path.exists()):
         token_path.write_text(base64.b64decode(b64).decode("utf-8"))
-    elif raw_json and not token_path.exists():
+    elif raw_json and (force_token_refresh or not token_path.exists()):
         token_path.write_text(raw_json)
 
     weights_path = logs / "boss_weights.json"
@@ -103,7 +103,42 @@ async def _run() -> int:
     )
 
     _bootstrap()
-    result = await BossTrader(ROOT, dry_run=False).run()
+    try:
+        result = await BossTrader(ROOT, dry_run=False).run()
+    except Exception as exc:
+        text = str(exc).lower()
+        auth_like = (
+            "oauth callback timed out" in text
+            or "401 unauthorized" in text
+            or "invalid_grant" in text
+            or "authorization" in text
+        )
+        if not auth_like:
+            raise
+
+        logging.warning(
+            "Robinhood auth failed; refreshing token from Railway env and retrying once: %s",
+            str(exc)[:300],
+        )
+        _bootstrap(force_token_refresh=True)
+        try:
+            result = await BossTrader(ROOT, dry_run=False).run()
+        except Exception as retry_exc:
+            logging.error(
+                "Robinhood auth still failing after refresh; skipping this cron run: %s",
+                str(retry_exc)[:300],
+            )
+            try:
+                from agent.notify import send_email
+
+                send_email(
+                    "Tradebot Railway auth blocked",
+                    "Robinhood OAuth failed in Railway. Re-run auth locally and update ROBINHOOD_OAUTH_B64.",
+                )
+            except Exception:
+                pass
+            return 0
+
     _notify(result)
 
     if result.get("execute_block_reasons"):
