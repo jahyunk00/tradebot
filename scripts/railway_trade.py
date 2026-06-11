@@ -57,6 +57,11 @@ def _bootstrap() -> None:
 
 
 def _notify(result: dict) -> None:
+    def _intent_field(intent: object, key: str, default: object = "") -> object:
+        if isinstance(intent, dict):
+            return intent.get(key, default)
+        return getattr(intent, key, default)
+
     try:
         from agent.notify import send_email
 
@@ -74,9 +79,11 @@ def _notify(result: dict) -> None:
         for step in result.get("trade_plan") or []:
             intent = step.get("intent", {})
             status = "EXECUTED" if step.get("executed") else "BLOCKED"
+            side = str(_intent_field(intent, "side", "")).upper()
+            ticker = _intent_field(intent, "ticker", "?")
+            amount = float(_intent_field(intent, "amount_usd", 0) or 0)
             lines.append(
-                f"[{status}] {intent.get('side', '').upper()} "
-                f"{intent.get('ticker')} ${intent.get('amount_usd', 0):.2f}"
+                f"[{status}] {side} {ticker} ${amount:.2f}"
             )
         send_email(f"Tradebot Railway run — {result.get('run_id', 'cron')}", "\n".join(lines))
     except Exception as exc:
