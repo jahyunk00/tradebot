@@ -21,7 +21,7 @@ universe:
   lookback_days: 252
   cache_hours: 20
 paper_trials:
-  enabled: true
+  enabled: false
   max_paper_slots: 3
   max_live_promoted: 3
   virtual_usd: 30
