@@ -105,13 +105,15 @@ async def _run() -> int:
     _bootstrap()
     try:
         result = await BossTrader(ROOT, dry_run=False).run()
-    except Exception as exc:
+    except BaseException as exc:
         text = str(exc).lower()
         auth_like = (
             "oauth callback timed out" in text
             or "401 unauthorized" in text
             or "invalid_grant" in text
             or "authorization" in text
+            or "cancelled via cancel scope" in text
+            or "aclose(): asynchronous generator is already running" in text
         )
         if not auth_like:
             raise
@@ -123,7 +125,7 @@ async def _run() -> int:
         _bootstrap(force_token_refresh=True)
         try:
             result = await BossTrader(ROOT, dry_run=False).run()
-        except Exception as retry_exc:
+        except BaseException as retry_exc:
             logging.error(
                 "Robinhood auth still failing after refresh; skipping this cron run: %s",
                 str(retry_exc)[:300],
@@ -151,7 +153,7 @@ async def _run() -> int:
 def main() -> None:
     try:
         raise SystemExit(asyncio.run(_run()))
-    except Exception:
+    except BaseException:
         logging.exception("Railway trade run failed")
         try:
             from agent.notify import send_email
