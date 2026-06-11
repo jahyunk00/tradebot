@@ -34,4 +34,4 @@ backtest_gate:
 
 min_minutes_between_trades: 0
 enforce_market_hours: true
-no_same_day_round_trip: true
+no_same_day_round_trip: false

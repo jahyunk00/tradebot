@@ -94,8 +94,13 @@ def build_portfolio_trade_plan(
                 }
             )
 
+    available_cash = float(getattr(bankroll, "cash_usd", 0) or 0)
+    remaining_targets = [t.upper() for t in targets]
+
     for ticker in targets:
         t = ticker.upper()
+        if t in remaining_targets:
+            remaining_targets.remove(t)
         allocation = bankroll.max_position_usd(g.max_position_pct)
         current_in_target = held.get(t, 0.0)
 
@@ -130,6 +135,13 @@ def build_portfolio_trade_plan(
             g.max_order_usd,
         )
         buy_amount = round(max(clamped - current_in_target, 0), 2)
+
+        # Prevent oversubscription in a single run: split available buying power
+        # across remaining targets so late orders are not rejected.
+        slots_left = max(len(remaining_targets) + 1, 1)
+        per_target_budget = round(max(available_cash / slots_left, 0), 2)
+        buy_amount = min(buy_amount, per_target_budget)
+
         if g.max_order_usd:
             buy_amount = min(buy_amount, g.max_order_usd)
         if buy_amount < 1.0:
@@ -149,4 +161,5 @@ def build_portfolio_trade_plan(
                 "kind": "enter",
             }
         )
+        available_cash = round(max(available_cash - buy_amount, 0), 2)
     return plan
