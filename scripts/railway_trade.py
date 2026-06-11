@@ -153,7 +153,7 @@ async def _run() -> int:
 def main() -> None:
     try:
         raise SystemExit(asyncio.run(_run()))
-    except BaseException:
+    except Exception:
         logging.exception("Railway trade run failed")
         try:
             from agent.notify import send_email
