@@ -79,7 +79,7 @@ def build_portfolio_trade_plan(
             if ticker in target_set:
                 continue
             amount = round(value, 2)
-            if amount <= 0:
+            if amount < 1.0:
                 continue
             plan.append(
                 {
