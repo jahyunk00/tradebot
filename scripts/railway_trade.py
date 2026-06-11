@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,6 +102,12 @@ async def _run() -> int:
         level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    # Keep Railway logs stable; these warnings are noisy and non-fatal.
+    logging.getLogger("hmmlearn").setLevel(logging.ERROR)
+    logging.getLogger("hmmlearn.base").setLevel(logging.ERROR)
+    warnings.filterwarnings("ignore", message=".*Some rows of transmat_ have zero sum.*")
+    warnings.filterwarnings("ignore", message=".*Model is not converging.*")
+    warnings.filterwarnings("ignore", message=".*invalid value encountered in divide.*")
 
     _bootstrap()
     try:
@@ -151,9 +158,10 @@ async def _run() -> int:
 
 
 def main() -> None:
+    exit_code = 0
     try:
-        raise SystemExit(asyncio.run(_run()))
-    except Exception:
+        exit_code = int(asyncio.run(_run()) or 0)
+    except BaseException:
         logging.exception("Railway trade run failed")
         try:
             from agent.notify import send_email
@@ -161,7 +169,9 @@ def main() -> None:
             send_email("Tradebot Railway run FAILED", "Check Railway logs for details.")
         except Exception:
             pass
-        raise SystemExit(1)
+        # Do not crash the service; cron should continue next cycle.
+        exit_code = 0
+    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
