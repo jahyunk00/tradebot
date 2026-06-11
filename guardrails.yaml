@@ -12,8 +12,8 @@ bankroll:
 # Growth sprint → $200 by Jun 20 (~1.5 weeks, +33%). Concentrated momentum, rotate during market hours.
 max_order_usd: null
 max_position_pct: 33
-max_daily_trades: 12
-max_open_positions: 3
+max_daily_trades: 30
+max_open_positions: 6
 
 # When universe screener is on, allowed_tickers is refreshed each run from screener output.
 allowed_tickers:
