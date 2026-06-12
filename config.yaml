@@ -71,7 +71,7 @@ boss:
     trailing_activate_pct: 4.0
     use_strategist_levels: true
   option_trading:
-    enabled: true
+    enabled: false
     side: call
     min_days_to_expiry: 3
     max_days_to_expiry: 21

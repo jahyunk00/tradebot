@@ -10,7 +10,7 @@ from typing import Any
 
 from agent.bankroll import clamp_trade_amount, resolve_bankroll
 from agent.config import load_config
-from agent.guardrails import Guardrails, TradeIntent, TradingMode
+from agent.guardrails import Guardrails, TradeIntent, TradingMode, count_meaningful_positions
 from agent.rules_signals import LiveSignal, get_live_signal, parse_positions
 from backtest.engine import run_backtest
 from broker.executor import OrderExecutor
@@ -84,7 +84,7 @@ class RulesTrader:
             self.guardrails_config,
             bankroll=bankroll,
             backtest_result=evaluated,
-            open_positions=len([v for v in positions.values() if v > 0]),
+            positions=positions,
         )
 
         signal = get_live_signal(

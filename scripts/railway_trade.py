@@ -43,13 +43,19 @@ def _bootstrap(*, force_token_refresh: bool = False) -> None:
             weights_path.write_text(seed.read_text())
 
     state_path = logs / "runtime_state.json"
-    active = os.getenv("ACTIVE_INVESTING", "false").lower() in ("1", "true", "yes")
     existing: dict = {}
     if state_path.exists():
         try:
             existing = json.loads(state_path.read_text())
         except json.JSONDecodeError:
             existing = {}
+    env_active = os.getenv("ACTIVE_INVESTING", "").strip().lower()
+    if env_active in ("1", "true", "yes"):
+        active = True
+    elif env_active in ("0", "false", "no"):
+        active = False
+    else:
+        active = bool(existing.get("active_investing", True))
     existing["active_investing"] = active
     existing["updated_at"] = datetime.now(timezone.utc).isoformat()
     existing["source"] = "railway_env_sync"

@@ -13,7 +13,7 @@ from agent.runtime_state import append_progress
 from agent.boss.agent import decide_from_history, load_boss_weights, weights_from_config
 from agent.boss.bear_market import detect_market_stress
 from agent.config import load_config
-from agent.guardrails import Guardrails, TradeIntent, TradingMode
+from agent.guardrails import Guardrails, TradeIntent, TradingMode, count_meaningful_positions
 from agent.rules_signals import LiveSignal, parse_positions
 from agent.rules_trader import RulesTrader
 from agent.portfolio_plan import build_portfolio_trade_plan, pick_targets
@@ -157,7 +157,7 @@ class BossTrader(RulesTrader):
             backtest_result=evaluated,
             trades_today=trades_today,
             last_trade_at=last_trade_at,
-            open_positions=len([v for v in positions.values() if v > 0]),
+            positions=positions,
         )
 
         exit_plan = build_exit_plan(
@@ -286,12 +286,20 @@ class BossTrader(RulesTrader):
                     )
                     guardrails.trades_today += 1
                     guardrails.last_trade_at = datetime.now(tz=Guardrails.ET)
-                    if intent.side.lower() == "buy" and intent.ticker.upper() not in {
-                        t.upper() for t in positions if positions[t] > 0
-                    }:
-                        guardrails.open_positions += 1
+                    t = intent.ticker.upper()
+                    if intent.side.lower() == "buy":
+                        prev = guardrails.positions.get(t, 0.0)
+                        guardrails.positions[t] = round(prev + intent.amount_usd, 2)
+                        if prev < 1.0 and guardrails.positions[t] >= 1.0:
+                            guardrails.open_positions = count_meaningful_positions(guardrails.positions)
                     elif intent.side.lower() == "sell":
-                        guardrails.open_positions = max(0, guardrails.open_positions - 1)
+                        prev = guardrails.positions.get(t, 0.0)
+                        remaining = round(max(prev - intent.amount_usd, 0), 2)
+                        if remaining >= 1.0:
+                            guardrails.positions[t] = remaining
+                        else:
+                            guardrails.positions.pop(t, None)
+                        guardrails.open_positions = count_meaningful_positions(guardrails.positions)
             except Exception as exc:
                 step_result["reasons"] = [str(exc)]
                 step_result["allowed"] = False

@@ -54,6 +54,20 @@ class GuardrailVerdict:
         return cls(allowed=True)
 
 
+MIN_POSITION_USD = 1.0
+
+
+def count_meaningful_positions(
+    positions: dict[str, float] | None,
+    *,
+    min_usd: float = MIN_POSITION_USD,
+) -> int:
+    """Ignore dust holdings (e.g. fractional leftovers) when enforcing position caps."""
+    if not positions:
+        return 0
+    return len([v for v in positions.values() if float(v) >= min_usd])
+
+
 class Guardrails:
     """Central enforcement layer. analyze-only is the default safe state."""
 
@@ -71,6 +85,7 @@ class Guardrails:
         trades_today: int = 0,
         last_trade_at: datetime | None = None,
         open_positions: int = 0,
+        positions: dict[str, float] | None = None,
     ) -> None:
         self.agent_config = agent_config
         self.guardrails_config = guardrails_config
@@ -78,7 +93,8 @@ class Guardrails:
         self.backtest_result = backtest_result
         self.trades_today = trades_today
         self.last_trade_at = last_trade_at
-        self.open_positions = open_positions
+        self.positions = {k.upper(): float(v) for k, v in (positions or {}).items() if float(v) > 0}
+        self.open_positions = open_positions or count_meaningful_positions(self.positions)
 
     def effective_max_order_usd(self) -> float:
         g = self.guardrails_config
@@ -195,7 +211,12 @@ class Guardrails:
             reasons.append(f"Daily trade limit reached ({g.max_daily_trades}).")
 
         if intent.side.lower() == "buy" and self.open_positions >= g.max_open_positions:
-            reasons.append(f"Max open positions ({g.max_open_positions}) reached.")
+            already_held = self.positions.get(ticker, 0.0) >= MIN_POSITION_USD
+            if not already_held:
+                reasons.append(
+                    f"Max open positions ({g.max_open_positions}) reached "
+                    f"({self.open_positions} meaningful holdings)."
+                )
 
         if self.last_trade_at and g.min_minutes_between_trades > 0:
             elapsed = (datetime.now(tz=self.ET) - self.last_trade_at.astimezone(self.ET)).total_seconds() / 60
