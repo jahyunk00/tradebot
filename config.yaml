@@ -70,6 +70,14 @@ boss:
     trailing_stop_pct: 3.5
     trailing_activate_pct: 4.0
     use_strategist_levels: true
+  option_trading:
+    enabled: true
+    side: call
+    min_days_to_expiry: 3
+    max_days_to_expiry: 21
+    max_contracts_per_run: 1
+    max_underlyings_per_run: 1
+    min_cash_to_trade_usd: 50
   weights_path: logs/boss_weights.json
   paper_portfolio_path: logs/paper_portfolio.json
   learning_rate: 0.08

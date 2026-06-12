@@ -18,6 +18,7 @@ from agent.rules_signals import LiveSignal, parse_positions
 from agent.rules_trader import RulesTrader
 from agent.portfolio_plan import build_portfolio_trade_plan, pick_targets
 from agent.position_exits import build_exit_plan, parse_position_lots
+from agent.options_trader import plan_option_trade
 from agent.paper_trials import live_promoted_tickers, run_paper_trials
 from agent.launch_schedule import apply_phase_to_guardrails, resolve_trading_phase
 from agent.trade_ledger import record_trade, resolve_daily_trade_stats
@@ -296,6 +297,53 @@ class BossTrader(RulesTrader):
                 step_result["allowed"] = False
             executions.append(step_result)
 
+        option_executions: list[dict[str, Any]] = []
+        opt_cfg = getattr(boss, "option_trading", None)
+        if (
+            opt_cfg
+            and getattr(opt_cfg, "enabled", False)
+            and not self.dry_run
+            and mode == TradingMode.AUTO_EXECUTE
+            and can_trade.allowed
+            and bankroll.cash_usd >= float(getattr(opt_cfg, "min_cash_to_trade_usd", 50.0))
+        ):
+            option_plan = await plan_option_trade(
+                client=client,
+                targets=targets[: int(getattr(opt_cfg, "max_underlyings_per_run", 1))],
+                history=history,
+                side=str(getattr(opt_cfg, "side", "call")),
+                min_days_to_expiry=int(getattr(opt_cfg, "min_days_to_expiry", 3)),
+                max_days_to_expiry=int(getattr(opt_cfg, "max_days_to_expiry", 21)),
+            )
+            if option_plan:
+                placed = await executor.place_option_order(
+                    account_number,
+                    option_id=option_plan["option_id"],
+                    side="buy",
+                    position_effect="open",
+                    quantity=int(getattr(opt_cfg, "max_contracts_per_run", 1)),
+                    dry_run=self.dry_run,
+                )
+                err = order_error_message(placed)
+                option_executions.append(
+                    {
+                        **option_plan,
+                        "executed": err is None,
+                        "broker_error": err,
+                        "result": placed,
+                    }
+                )
+                if err:
+                    broker_block = broker_block or err
+                    logger.error("Option order rejected %s %s: %s", option_plan["ticker"], option_plan["option_id"], err[:200])
+                else:
+                    logger.info(
+                        "Option order executed: %s %s %s",
+                        option_plan["ticker"],
+                        option_plan["type"],
+                        option_plan["strike_price"],
+                    )
+
         await client.disconnect()
 
         cmp = report.benchmark_comparison
@@ -346,6 +394,7 @@ class BossTrader(RulesTrader):
             "execute_block_reasons": can_trade.reasons,
             "broker_block": broker_block,
             "broker_setup_url": extract_action_url(broker_block) if broker_block else None,
+            "option_trades": option_executions,
         }
 
         out = self.log_dir / f"boss_trade_{run_id}.json"

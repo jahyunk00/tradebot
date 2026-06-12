@@ -79,3 +79,42 @@ class OrderExecutor:
             logger.error("Robinhood rejected %s %s $%.2f: %s", side, symbol, dollar_amount, err[:300])
             response["broker_error"] = err
         return response
+
+    async def place_option_order(
+        self,
+        account_number: str,
+        *,
+        option_id: str,
+        side: str = "buy",
+        position_effect: str = "open",
+        quantity: int = 1,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        payload = {
+            "account_number": account_number,
+            "legs": [
+                {
+                    "option_id": option_id,
+                    "side": side.lower(),
+                    "position_effect": position_effect.lower(),
+                }
+            ],
+            "type": "market",
+            "quantity": str(max(int(quantity), 1)),
+            "time_in_force": "gfd",
+            "market_hours": "regular_hours",
+            "ref_id": str(uuid.uuid4()),
+        }
+
+        if dry_run:
+            review = await self.client.call_tool("review_option_order", payload)
+            return {"dry_run": True, "review": review, "payload": payload}
+
+        logger.info("Placing option %s %s x%s", side, option_id, payload["quantity"])
+        result = await self.client.call_tool("place_option_order", payload)
+        response = {"dry_run": False, "result": result, "payload": payload}
+        err = order_error_message(response)
+        if err:
+            logger.error("Robinhood rejected option %s %s x%s: %s", side, option_id, payload["quantity"], err[:300])
+            response["broker_error"] = err
+        return response

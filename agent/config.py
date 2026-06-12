@@ -116,6 +116,17 @@ class ExitRulesSettings(BaseModel):
     use_strategist_levels: bool = True
 
 
+class OptionTradingSettings(BaseModel):
+    """Single-leg options trading controls for the boss trader."""
+    enabled: bool = False
+    side: Literal["call", "put"] = "call"
+    min_days_to_expiry: int = 3
+    max_days_to_expiry: int = 21
+    max_contracts_per_run: int = 1
+    max_underlyings_per_run: int = 1
+    min_cash_to_trade_usd: float = 50.0
+
+
 class BossSettings(BaseModel):
     """Boss agent orchestrates three leg agents with learned weights."""
     enabled: bool = True
@@ -130,6 +141,7 @@ class BossSettings(BaseModel):
     rotate_out: bool = True
     momentum_weight: float = 0.5
     exit_rules: ExitRulesSettings = Field(default_factory=ExitRulesSettings)
+    option_trading: OptionTradingSettings = Field(default_factory=OptionTradingSettings)
 
 
 class BearModeSettings(BaseModel):

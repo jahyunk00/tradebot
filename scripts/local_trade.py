@@ -77,6 +77,17 @@ def main() -> int:
         for reason in step.get("reasons") or []:
             print(f"         {reason[:300]}")
 
+    if result.get("option_trades"):
+        print("\nOption trades:")
+        for opt in result["option_trades"]:
+            tag = "EXECUTED" if opt.get("executed") else "BROKER_REJECTED"
+            print(
+                f"  [{tag}] {opt.get('ticker')} {str(opt.get('type', '')).upper()} "
+                f"{opt.get('strike_price')} exp {opt.get('expiration_date')}"
+            )
+            if opt.get("broker_error"):
+                print(f"         {str(opt['broker_error'])[:300]}")
+
     run_id = result.get("run_id", "local")
     log = ROOT / "logs" / f"boss_trade_{run_id}.json"
     print(f"\nLog: {log}")
