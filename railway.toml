@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "python scripts/railway_entry.py"
-# Every 2 min during US market hours (EDT = UTC-4): ~9:00 AM–3:58 PM ET, Mon–Fri
-# Nov–Mar (EST): shift +1 hour → use "*/2 14-20 * * 1-5"
-cronSchedule = "*/2 13-19 * * 1-5"
+# Every 1 min during US market hours (EDT = UTC-4): ~9:00 AM–3:58 PM ET, Mon–Fri
+# Nov–Mar (EST): shift +1 hour → use "*/1 14-20 * * 1-5"
+cronSchedule = "*/1 13-19 * * 1-5"
 restartPolicyType = "NEVER"

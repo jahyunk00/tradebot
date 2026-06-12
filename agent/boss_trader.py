@@ -187,6 +187,9 @@ class BossTrader(RulesTrader):
             guardrails=guardrails,
             rationale=decision.rationale,
             rotate_out=boss.rotate_out or boss.portfolio_mode == "single",
+            max_buys_per_run=getattr(boss, "max_buys_per_run", None),
+            max_sells_per_run=getattr(boss, "max_sells_per_run", None),
+            min_staged_buy_usd=float(getattr(boss, "min_staged_buy_usd", 15.0)),
         )
         # Exits first (stops / profit-taking), then rotation and new entries
         trade_plan = exit_plan + entry_plan

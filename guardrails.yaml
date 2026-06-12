@@ -9,11 +9,11 @@ bankroll:
   require_cash_only: true
   reinvest_profits: true
 
-# Growth sprint → $200 by Jun 20 (~1.5 weeks, +33%). Concentrated momentum, rotate during market hours.
+# High-activity growth sprint — staged buys, faster rotation, tighter exits.
 max_order_usd: null
-max_position_pct: 33
-max_daily_trades: 30
-max_open_positions: 6
+max_position_pct: 30
+max_daily_trades: 60
+max_open_positions: 8
 
 # When universe screener is on, allowed_tickers is refreshed each run from screener output.
 allowed_tickers:

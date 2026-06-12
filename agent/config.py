@@ -140,6 +140,9 @@ class BossSettings(BaseModel):
     max_picks: int = 4
     rotate_out: bool = True
     momentum_weight: float = 0.5
+    max_buys_per_run: int = 3
+    max_sells_per_run: int = 2
+    min_staged_buy_usd: float = 15.0
     exit_rules: ExitRulesSettings = Field(default_factory=ExitRulesSettings)
     option_trading: OptionTradingSettings = Field(default_factory=OptionTradingSettings)
 

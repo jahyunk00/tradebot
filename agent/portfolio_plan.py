@@ -64,6 +64,9 @@ def build_portfolio_trade_plan(
     guardrails: Guardrails,
     rationale: str,
     rotate_out: bool,
+    max_buys_per_run: int | None = None,
+    max_sells_per_run: int | None = None,
+    min_staged_buy_usd: float = 15.0,
 ) -> list[dict[str, Any]]:
     """
     single + rotate_out: sell non-target, buy one (classic rotation).
@@ -74,8 +77,11 @@ def build_portfolio_trade_plan(
     plan: list[dict[str, Any]] = []
     target_set = {t.upper() for t in targets}
 
+    sells_planned = 0
     if rotate_out:
         for ticker, value in held.items():
+            if max_sells_per_run is not None and sells_planned >= max_sells_per_run:
+                break
             if ticker in target_set:
                 continue
             amount = round(value, 2)
@@ -93,11 +99,15 @@ def build_portfolio_trade_plan(
                     "kind": "exit",
                 }
             )
+            sells_planned += 1
 
     available_cash = float(getattr(bankroll, "cash_usd", 0) or 0)
     remaining_targets = [t.upper() for t in targets]
+    buys_planned = 0
 
     for ticker in targets:
+        if max_buys_per_run is not None and buys_planned >= max_buys_per_run:
+            break
         t = ticker.upper()
         if t in remaining_targets:
             remaining_targets.remove(t)
@@ -144,6 +154,8 @@ def build_portfolio_trade_plan(
 
         if g.max_order_usd:
             buy_amount = min(buy_amount, g.max_order_usd)
+        if min_staged_buy_usd > 0 and buy_amount > min_staged_buy_usd:
+            buy_amount = round(min(buy_amount, min_staged_buy_usd), 2)
         if buy_amount < 1.0:
             continue
         r = rationale
@@ -162,4 +174,5 @@ def build_portfolio_trade_plan(
             }
         )
         available_cash = round(max(available_cash - buy_amount, 0), 2)
+        buys_planned += 1
     return plan
