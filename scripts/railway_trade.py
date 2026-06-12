@@ -12,6 +12,7 @@ import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -30,9 +31,11 @@ def _bootstrap(*, force_token_refresh: bool = False) -> None:
 
     b64 = os.getenv("ROBINHOOD_OAUTH_B64", "").strip()
     raw_json = os.getenv("ROBINHOOD_OAUTH_JSON", "").strip()
-    if b64 and (force_token_refresh or not token_path.exists()):
+    on_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_SERVICE_NAME"))
+    # Headless Railway cannot complete OAuth in-browser — always seed from env when set.
+    if b64 and (force_token_refresh or on_railway or not token_path.exists()):
         token_path.write_text(base64.b64decode(b64).decode("utf-8"))
-    elif raw_json and (force_token_refresh or not token_path.exists()):
+    elif raw_json and (force_token_refresh or on_railway or not token_path.exists()):
         token_path.write_text(raw_json)
 
     weights_path = logs / "boss_weights.json"
@@ -55,12 +58,43 @@ def _bootstrap(*, force_token_refresh: bool = False) -> None:
     elif env_active in ("0", "false", "no"):
         active = False
     else:
-        active = bool(existing.get("active_investing", True))
+        # Default ON for Railway so cron/worker keeps trading without manual toggles.
+        active = bool(existing.get("active_investing", on_railway or True))
     existing["active_investing"] = active
     existing["updated_at"] = datetime.now(timezone.utc).isoformat()
     existing["source"] = "railway_env_sync"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(existing, indent=2))
+    os.environ.setdefault("ACTIVE_INVESTING", "true" if active else "false")
+
+
+def _write_heartbeat(payload: dict) -> None:
+    from agent.runtime_state import _logs_dir
+
+    path = _logs_dir(ROOT) / "cron_heartbeat.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+def _summarize_run(result: dict) -> dict[str, Any]:
+    executed = [
+        s for s in (result.get("trade_plan") or [])
+        if s.get("executed")
+    ]
+    blocked = [
+        s for s in (result.get("trade_plan") or [])
+        if not s.get("executed") and s.get("allowed") is False
+    ]
+    return {
+        "run_id": result.get("run_id"),
+        "mode": result.get("mode"),
+        "can_execute": result.get("can_execute"),
+        "execute_block_reasons": result.get("execute_block_reasons") or [],
+        "executed_count": len(executed),
+        "blocked_count": len(blocked),
+        "broker_block": result.get("broker_block"),
+        "active_investing": os.getenv("ACTIVE_INVESTING"),
+    }
 
 
 def _notify(result: dict) -> None:
@@ -103,6 +137,8 @@ async def _run() -> int:
     load_dotenv(ROOT / ".env")
 
     from agent.boss_trader import BossTrader
+    from agent.config import load_config
+    from agent.guardrails import is_us_market_hours
 
     logging.basicConfig(
         level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
@@ -116,6 +152,25 @@ async def _run() -> int:
     warnings.filterwarnings("ignore", message=".*invalid value encountered in divide.*")
 
     _bootstrap()
+    agent_cfg, guard_cfg = load_config(ROOT)
+    if guard_cfg.enforce_market_hours and not is_us_market_hours():
+        msg = "Outside US market hours — skipping run"
+        logging.info(msg)
+        _write_heartbeat(
+            {
+                "skipped": "market_closed",
+                "message": msg,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return 0
+
+    logger = logging.getLogger("railway_trade")
+    logger.info(
+        "Starting trade run (ACTIVE_INVESTING=%s, mode=%s)",
+        os.getenv("ACTIVE_INVESTING"),
+        agent_cfg.mode,
+    )
     try:
         result = await BossTrader(ROOT, dry_run=False).run()
     except BaseException as exc:
@@ -156,10 +211,16 @@ async def _run() -> int:
 
     _notify(result)
 
+    summary = _summarize_run(result)
+    _write_heartbeat({**summary, "finished_at": datetime.now(timezone.utc).isoformat()})
+    logger.info("RAILWAY_RUN_COMPLETE %s", json.dumps(summary, default=str))
+
     if result.get("execute_block_reasons"):
         logging.info("Run finished with blocks: %s", result["execute_block_reasons"])
+    elif summary["executed_count"] == 0 and not summary.get("broker_block"):
+        logging.info("Run finished — no orders executed (plan empty or all reviewed only)")
     else:
-        logging.info("Run finished OK")
+        logging.info("Run finished OK — %s orders executed", summary["executed_count"])
     return 0
 
 

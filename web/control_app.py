@@ -80,7 +80,7 @@ def _dashboard_data() -> dict[str, Any]:
         "progress": progress[-30:],
         "last_run": last_run,
         "railway_sync": railway_sync_configured(),
-        "cron_schedule": "Every 30 min · US market hours · Mon–Fri",
+        "cron_schedule": "Every 5 min · US market hours · Mon–Fri (or TRADE_LOOP_SECONDS worker)",
     }
 
 

@@ -175,4 +175,24 @@ def build_portfolio_trade_plan(
         )
         available_cash = round(max(available_cash - buy_amount, 0), 2)
         buys_planned += 1
+
+    # Deploy idle cash into the top target so scheduled runs still trade when
+    # positions are already near their allocation caps.
+    if buys_planned == 0 and targets and available_cash >= max(min_staged_buy_usd, 1.0):
+        t = targets[0].upper()
+        amount = round(min(available_cash, min_staged_buy_usd), 2)
+        if amount >= 1.0:
+            plan.append(
+                {
+                    "intent": TradeIntent(
+                        ticker=t,
+                        side="buy",
+                        amount_usd=amount,
+                        order_type="market",
+                        rationale=f"Idle cash deploy — staged ${amount:.2f} into top pick {t}.",
+                    ),
+                    "kind": "idle_deploy",
+                }
+            )
+
     return plan

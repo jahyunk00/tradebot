@@ -8,7 +8,25 @@ Your **tradebot** service should be ONE cron job. Ignore old FAILED rows in the 
 |---------|--------|
 | Builder | **Dockerfile** (not Nixpacks) |
 | Start command | `python scripts/railway_trade.py` |
-| Cron | `35 13 * * 1-5` (9:35 AM Eastern, Mon–Fri) |
+## Recommended: always-on worker (trades all day)
+
+Cron often **skips runs** when each cycle takes ~60–90s (overlap) or when Robinhood OAuth fails silently. Use a **worker** instead:
+
+| Setting | Value |
+|---------|--------|
+| Start command | `python scripts/railway_entry.py` |
+| **Cron schedule** | **None / empty** (not a cron service) |
+| `TRADE_LOOP_SECONDS` | `300` (trade every 5 min during market hours) |
+| `ACTIVE_INVESTING` | `true` |
+| `ROBINHOOD_OAUTH_B64` | your token (from encode_oauth.sh) |
+
+Check Railway logs for `RAILWAY_RUN_COMPLETE` after each cycle.
+
+## Alternative: cron (less reliable)
+
+| Setting | Value |
+|---------|--------|
+| Cron | `*/5 13-20 * * 1-5` (every 5 min, US market hours UTC) |
 | `ACTIVE_INVESTING` | `true` or `false` (controls live vs paper) |
 | `ROBINHOOD_OAUTH_B64` | your token (from encode_oauth.sh) |
 

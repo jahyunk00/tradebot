@@ -20,6 +20,13 @@ def main() -> None:
         uvicorn.run("web.control_app:app", host="0.0.0.0", port=port, log_level="info")
         return
 
+    loop_sec = os.getenv("TRADE_LOOP_SECONDS", "").strip()
+    if loop_sec and loop_sec not in ("0", "false", "no"):
+        from scripts.railway_worker import main as worker_main
+
+        worker_main()
+        return
+
     from scripts.railway_trade import main as trade_main
 
     trade_main()

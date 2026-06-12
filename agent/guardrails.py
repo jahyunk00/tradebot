@@ -245,7 +245,12 @@ class Guardrails:
         return result
 
     def _is_market_hours(self) -> bool:
-        now = datetime.now(tz=self.ET)
-        if now.weekday() >= 5:
-            return False
-        return self.MARKET_OPEN <= now.time() <= self.MARKET_CLOSE
+        return is_us_market_hours()
+
+
+def is_us_market_hours() -> bool:
+    """US regular session Mon–Fri 9:30–16:00 Eastern."""
+    now = datetime.now(tz=Guardrails.ET)
+    if now.weekday() >= 5:
+        return False
+    return Guardrails.MARKET_OPEN <= now.time() <= Guardrails.MARKET_CLOSE
